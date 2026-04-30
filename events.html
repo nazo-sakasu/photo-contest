@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>フォトコンテスト - イベント管理</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=Noto+Sans+JP:wght@500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="db.js"></script>
+<style>
+:root {
+  --bg: #f5ede0; --bg-2: #efe6d6; --foam: #e8f1f5;
+  --ink: #0a1f2a; --ink-2: #2c4250; --ink-3: #6c7d8a; --ink-4: #b8c2cb;
+  --sea-deep: #0a3d52; --sea: #14587a; --coral: #ff7d5c; --pearl: #c8951f;
+  --line: rgba(10,31,42,0.1);
+  --shadow-md: 0 4px 12px rgba(10,31,42,0.1);
+  --r: 14px; --r-lg: 20px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--ink); font-family: 'Noto Sans JP', sans-serif; font-weight: 500; min-height: 100vh; }
+.container { max-width: 960px; margin: 0 auto; padding: 32px 20px 60px; }
+
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; gap: 12px; }
+.header__brand { display: flex; align-items: center; gap: 10px; }
+.header__logo { width: 36px; height: 36px; background: var(--sea-deep); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.header__title { font-size: 16px; font-weight: 800; line-height: 1.2; }
+.header__title small { display: block; font-family: 'Inter', sans-serif; font-size: 10px; color: var(--ink-3); font-weight: 600; letter-spacing: 0.1em; margin-top: 2px; }
+.header__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.btn { background: var(--ink); color: var(--foam); border: none; padding: 10px 18px; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; border-radius: var(--r); transition: all 0.2s; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { background: var(--coral); }
+.btn--sm { padding: 6px 12px; font-size: 12px; }
+.btn--ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.btn--ghost:hover { background: var(--bg-2); border-color: var(--ink); color: var(--ink); }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 32px; }
+.stat-card { background: var(--bg-2); border-radius: var(--r); padding: 16px 18px; }
+.stat-card__label { font-family: 'Inter', sans-serif; font-size: 9px; font-weight: 700; color: var(--ink-3); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 6px; }
+.stat-card__value { font-family: 'Inter', sans-serif; font-size: 28px; font-weight: 800; color: var(--ink); line-height: 1; letter-spacing: -0.02em; }
+.stat-card__sub { font-size: 11px; color: var(--ink-3); margin-top: 4px; font-weight: 600; }
+
+.section { margin-bottom: 32px; }
+.section__title { font-size: 13px; font-weight: 700; color: var(--ink-3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 14px; }
+
+.events { display: grid; gap: 12px; }
+.event-card { background: var(--bg-2); border-radius: var(--r); padding: 16px 18px; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; }
+.event-card__main { min-width: 0; }
+.event-card__name { font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+.event-card__meta { font-size: 11px; color: var(--ink-3); display: flex; gap: 12px; flex-wrap: wrap; }
+.event-card__status { display: inline-block; padding: 2px 8px; border-radius: 100px; font-size: 10px; font-weight: 700; }
+.event-card__status--draft { background: var(--ink-4); color: var(--foam); }
+.event-card__status--active { background: var(--coral); color: var(--foam); }
+.event-card__status--archived { background: var(--bg); color: var(--ink-3); }
+.event-card__actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.event-card__stats-row { display: flex; gap: 14px; margin-top: 6px; font-size: 11px; color: var(--ink-3); flex-wrap: wrap; }
+.event-card__stats-row span b { color: var(--ink); font-weight: 700; }
+
+.empty { text-align: center; padding: 60px 20px; color: var(--ink-3); font-size: 13px; }
+.empty__icon { font-size: 48px; margin-bottom: 12px; opacity: 0.4; }
+
+.modal-bg { position: fixed; inset: 0; background: rgba(10,31,42,0.6); z-index: 100; display: none; align-items: center; justify-content: center; padding: 20px; }
+.modal-bg.show { display: flex; }
+.modal { background: var(--bg); border-radius: var(--r-lg); padding: 28px 24px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; }
+.modal__title { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+.modal__sub { font-size: 12px; color: var(--ink-3); margin-bottom: 20px; line-height: 1.6; }
+.modal__field { margin-bottom: 14px; }
+.modal__label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; color: var(--ink-2); }
+.modal__hint { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+.modal__input { width: 100%; background: var(--bg-2); border: 1px solid transparent; border-radius: var(--r); padding: 12px 14px; font-family: inherit; font-size: 14px; color: var(--ink); outline: none; }
+.modal__input:focus { border-color: var(--ink); background: var(--bg); }
+.modal__actions { display: flex; gap: 8px; margin-top: 20px; }
+.modal__actions .btn { flex: 1; padding: 14px; justify-content: center; }
+
+.url-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 10px 12px; background: var(--bg); border-radius: 8px; margin-bottom: 6px; font-size: 12px; }
+.url-row__label { font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+.url-row__url { font-family: 'Inter', sans-serif; font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.url-row__copy { background: var(--ink); color: var(--foam); border: none; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer; border-radius: 6px; }
+
+.toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--foam); padding: 12px 22px; border-radius: 100px; font-size: 13px; font-weight: 600; z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s; box-shadow: var(--shadow-md); }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+.toast.error { background: var(--coral); }
+
+.lock-screen { position: fixed; inset: 0; background: var(--sea-deep); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 1000; background-image: radial-gradient(circle at 20% 20%, rgba(42,141,181,0.4) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,125,92,0.15) 0%, transparent 50%); }
+.lock-card { background: var(--bg); border-radius: var(--r-lg); padding: 36px 28px; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 16px 48px rgba(10,31,42,0.3); }
+.lock-card__icon { font-size: 48px; margin-bottom: 18px; }
+.lock-card__title { font-weight: 800; font-size: 20px; margin-bottom: 8px; }
+.lock-card__sub { font-size: 12px; color: var(--ink-3); margin-bottom: 24px; line-height: 1.6; }
+.lock-card__input { width: 100%; background: var(--bg-2); border: 2px solid transparent; border-radius: var(--r); padding: 16px; font-family: inherit; font-size: 18px; color: var(--ink); outline: none; text-align: center; letter-spacing: 0.1em; margin-bottom: 14px; }
+.lock-card__input:focus { border-color: var(--coral); background: white; }
+.lock-card__input.error { border-color: var(--coral); animation: shake 0.3s; }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+.lock-card__btn { background: var(--ink); color: var(--foam); border: none; width: 100%; padding: 16px; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; border-radius: var(--r); }
+.lock-card__btn:hover { background: var(--coral); }
+.lock-card__hint { font-size: 11px; color: var(--ink-3); margin-top: 14px; line-height: 1.6; }
+.lock-card__hint a { color: var(--coral); text-decoration: none; font-weight: 700; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="lock-screen" id="lockScreen">
+  <div class="lock-card">
+    <div class="lock-card__icon">🔒</div>
+    <div class="lock-card__title" id="lockTitle">アクセス認証</div>
+    <div class="lock-card__sub" id="lockSub">マスターパスワードを入力してください</div>
+    <input type="password" class="lock-card__input" id="lockInput" placeholder="パスワード" autocomplete="off">
+    <button class="lock-card__btn" id="lockBtn">ログイン</button>
+    <div class="lock-card__hint" id="lockHint"></div>
+  </div>
+</div>
+
+<div class="container" id="mainContainer" style="display:none;">
+
+  <div class="header">
+    <div class="header__brand">
+      <div class="header__logo">📸</div>
+      <div class="header__title">
+        フォトコンテスト
+        <small>EVENT MANAGER</small>
+      </div>
+    </div>
+    <div class="header__actions">
+      <button class="btn btn--ghost btn--sm" id="settingsBtn">⚙ 設定</button>
+      <button class="btn btn--ghost btn--sm" id="logoutBtn">ログアウト</button>
+      <button class="btn" id="newEventBtn">＋ 新規イベント</button>
+    </div>
+  </div>
+
+  <div class="stats" id="statsRow"></div>
+
+  <div class="section">
+    <div class="section__title">運用中・予定 / Upcoming &amp; Active</div>
+    <div class="events" id="activeEvents"></div>
+  </div>
+
+  <div class="section">
+    <div class="section__title">アーカイブ / Archived</div>
+    <div class="events" id="archivedEvents"></div>
+  </div>
+
+</div>
+
+<div class="modal-bg" id="createModal">
+  <div class="modal">
+    <div class="modal__title" id="createModalTitle">新規イベント作成</div>
+    <div class="modal__sub">基本情報を入力してください。詳細はホスト画面で設定できます。</div>
+    <div class="modal__field">
+      <label class="modal__label">イベント名 <span style="color:var(--coral);">*</span></label>
+      <input type="text" class="modal__input" id="newName" placeholder="例：竹島水族館 夏祭り 2026" maxlength="50">
+    </div>
+    <div class="modal__field">
+      <label class="modal__label">イベントID（URL用） <span style="color:var(--coral);">*</span></label>
+      <input type="text" class="modal__input" id="newId" placeholder="例：takeshima_2026_summer" maxlength="40">
+      <div class="modal__hint">半角英数字とハイフン・アンダースコアのみ。後から変更不可。</div>
+    </div>
+    <div class="modal__field">
+      <label class="modal__label">テーマ</label>
+      <input type="text" class="modal__input" id="newTheme" placeholder="例：家族の思い出" maxlength="30">
+      <div class="modal__hint">参加者画面の上部に表示（後から編集可）</div>
+    </div>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" id="createCancel">キャンセル</button>
+      <button class="btn" id="createConfirm">作成</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="urlModal">
+  <div class="modal">
+    <div class="modal__title" id="urlModalTitle">イベントURL</div>
+    <div class="modal__sub">参加者用とホスト用、それぞれのURLを共有してください。<br><b style="color:var(--coral);">⚠ ホスト用URLは絶対に外部に出さないでください</b></div>
+    <div class="url-row">
+      <div>
+        <div class="url-row__label">📱 参加者用</div>
+        <div class="url-row__url" id="urlParticipant"></div>
+      </div>
+      <button class="url-row__copy" data-copy="urlParticipant">コピー</button>
+    </div>
+    <div class="url-row">
+      <div>
+        <div class="url-row__label">🔒 ホスト用</div>
+        <div class="url-row__url" id="urlHost"></div>
+      </div>
+      <button class="url-row__copy" data-copy="urlHost">コピー</button>
+    </div>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" id="urlClose">閉じる</button>
+      <a class="btn" id="urlOpenAdmin" target="_blank">ホスト画面を開く →</a>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <div class="modal__title">マスターパスワード変更</div>
+    <div class="modal__sub">events.html へのアクセスを制限するパスワード。<br>変更後は再ログインが必要です。</div>
+    <div class="modal__field">
+      <label class="modal__label">新しいパスワード</label>
+      <input type="password" class="modal__input" id="newPassword" placeholder="4文字以上" autocomplete="new-password">
+      <div class="modal__hint">空欄にすると認証なしになります（非推奨）</div>
+    </div>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" id="settingsCancel">キャンセル</button>
+      <button class="btn" id="settingsSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+const PASSWORD_KEY = 'photo_contest_master_password_hash';
+const AUTH_KEY = 'photo_contest_auth_token';
+
+function showToast(msg, isError = false) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.toggle('error', isError);
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2400);
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function genHostKey() {
+  const chars = 'abcdefghijkmnopqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < 16; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+async function hashPassword(pw) {
+  const data = new TextEncoder().encode(pw);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ============================================================
+// パスワード認証
+// ============================================================
+async function checkAuth() {
+  const storedHash = localStorage.getItem(PASSWORD_KEY);
+  const sessionToken = sessionStorage.getItem(AUTH_KEY);
+  if (!storedHash) {
+    $('#lockTitle').textContent = '初回パスワード設定';
+    $('#lockSub').textContent = 'このブラウザでマスターパスワードを設定します';
+    $('#lockInput').placeholder = '新しいパスワード（4文字以上）';
+    $('#lockBtn').textContent = '設定して開始';
+    $('#lockHint').innerHTML = '※忘れると復旧できません。安全な場所に保管してください。';
+    return false;
+  }
+  if (sessionToken === storedHash) return true;
+  $('#lockTitle').textContent = 'アクセス認証';
+  $('#lockSub').textContent = 'マスターパスワードを入力してください';
+  $('#lockInput').placeholder = 'パスワード';
+  $('#lockBtn').textContent = 'ログイン';
+  $('#lockHint').innerHTML = '<a id="resetPwLink">パスワードを忘れた場合</a>';
+  return false;
+}
+
+async function handleLockSubmit() {
+  const input = $('#lockInput');
+  const value = input.value;
+  if (!value) { input.focus(); return; }
+  const storedHash = localStorage.getItem(PASSWORD_KEY);
+  if (!storedHash) {
+    if (value.length < 4) { showToast('4文字以上で設定してください', true); return; }
+    const hash = await hashPassword(value);
+    localStorage.setItem(PASSWORD_KEY, hash);
+    sessionStorage.setItem(AUTH_KEY, hash);
+    enterApp();
+    showToast('パスワードを設定しました');
+    return;
+  }
+  const inputHash = await hashPassword(value);
+  if (inputHash === storedHash) {
+    sessionStorage.setItem(AUTH_KEY, storedHash);
+    enterApp();
+  } else {
+    input.classList.add('error');
+    setTimeout(() => input.classList.remove('error'), 400);
+    input.value = '';
+    input.focus();
+  }
+}
+function enterApp() {
+  $('#lockScreen').style.display = 'none';
+  $('#mainContainer').style.display = 'block';
+  loadEvents();
+}
+function logout() {
+  sessionStorage.removeItem(AUTH_KEY);
+  location.reload();
+}
+
+// ============================================================
+// イベント一覧と統計
+// ============================================================
+async function loadStats(events) {
+  const stats = $('#statsRow');
+  const active = events.filter(e => e.status === 'active' || e.status === 'draft').length;
+  const archived = events.filter(e => e.status === 'archived').length;
+  let totalPhotos = 0, totalLikes = 0, totalComments = 0;
+  try {
+    const [p, l, c] = await Promise.all([
+      DB.sb.from('photos').select('*', { count: 'exact', head: true }),
+      DB.sb.from('likes').select('*', { count: 'exact', head: true }),
+      DB.sb.from('comments').select('*', { count: 'exact', head: true }),
+    ]);
+    totalPhotos = p.count || 0;
+    totalLikes = l.count || 0;
+    totalComments = c.count || 0;
+  } catch (e) { console.error(e); }
+  stats.innerHTML = `
+    <div class="stat-card"><div class="stat-card__label">EVENTS</div><div class="stat-card__value">${events.length}</div><div class="stat-card__sub">運用 ${active} / アーカイブ ${archived}</div></div>
+    <div class="stat-card"><div class="stat-card__label">PHOTOS</div><div class="stat-card__value">${totalPhotos}</div><div class="stat-card__sub">累計投稿枚数</div></div>
+    <div class="stat-card"><div class="stat-card__label">LIKES</div><div class="stat-card__value">${totalLikes}</div><div class="stat-card__sub">累計いいね数</div></div>
+    <div class="stat-card"><div class="stat-card__label">COMMENTS</div><div class="stat-card__value">${totalComments}</div><div class="stat-card__sub">累計コメント数</div></div>
+  `;
+}
+
+async function loadEvents() {
+  try {
+    const events = await DB.listEvents();
+    const active = events.filter(e => e.status !== 'archived');
+    const archived = events.filter(e => e.status === 'archived');
+    await loadStats(events);
+    await renderEvents($('#activeEvents'), active);
+    await renderEvents($('#archivedEvents'), archived);
+  } catch (err) {
+    console.error(err);
+    showToast('イベント取得に失敗しました', true);
+  }
+}
+
+async function getEventStats(eventId) {
+  try {
+    const [p, l, c] = await Promise.all([
+      DB.sb.from('photos').select('*', { count: 'exact', head: true }).eq('event_id', eventId),
+      DB.sb.from('likes').select('*', { count: 'exact', head: true }).eq('event_id', eventId),
+      DB.sb.from('comments').select('*', { count: 'exact', head: true }).eq('event_id', eventId),
+    ]);
+    return { photos: p.count || 0, likes: l.count || 0, comments: c.count || 0 };
+  } catch (e) { return { photos: 0, likes: 0, comments: 0 }; }
+}
+
+async function renderEvents(container, events) {
+  if (events.length === 0) {
+    container.innerHTML = `<div class="empty"><div class="empty__icon">📅</div><div>イベントがありません</div></div>`;
+    return;
+  }
+  const stats = await Promise.all(events.map(e => getEventStats(e.id)));
+  container.innerHTML = events.map((e, idx) => {
+    const created = new Date(e.created_at).toLocaleDateString('ja-JP');
+    const phaseLabel = {waiting:'待機中',voting:'投票中',result_5:'結果発表(5位)',result_4:'結果発表(4位)',result_3:'結果発表(3位)',result_2:'結果発表(2位)',result_1:'結果発表(1位)',finished:'終了'}[e.phase] || e.phase;
+    const s = stats[idx];
+    return `
+      <div class="event-card">
+        <div class="event-card__main">
+          <div class="event-card__name">${escapeHtml(e.name)}</div>
+          <div class="event-card__meta">
+            <span class="event-card__status event-card__status--${e.status}">${e.status === 'draft' ? 'DRAFT' : e.status === 'active' ? 'ACTIVE' : 'ARCHIVED'}</span>
+            <span>ID: ${escapeHtml(e.id)}</span>
+            <span>${created}</span>
+            <span>📍 ${escapeHtml(phaseLabel)}</span>
+          </div>
+          <div class="event-card__stats-row">
+            <span>📸 投稿: <b>${s.photos}</b></span>
+            <span>❤ いいね: <b>${s.likes}</b></span>
+            <span>💬 コメント: <b>${s.comments}</b></span>
+          </div>
+        </div>
+        <div class="event-card__actions">
+          <button class="btn btn--ghost btn--sm" data-show-url="${escapeHtml(e.id)}">URL</button>
+          <a class="btn btn--ghost btn--sm" href="admin.html?event=${encodeURIComponent(e.id)}&key=${encodeURIComponent(e.host_key)}" target="_blank">管理</a>
+          <button class="btn btn--ghost btn--sm" data-duplicate="${escapeHtml(e.id)}">複製</button>
+          ${e.status !== 'archived'
+            ? `<button class="btn btn--ghost btn--sm" data-archive="${escapeHtml(e.id)}">アーカイブ</button>`
+            : `<button class="btn btn--ghost btn--sm" data-delete="${escapeHtml(e.id)}" style="color:var(--coral);">削除</button>`
+          }
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('[data-show-url]').forEach(b => {
+    b.addEventListener('click', () => showUrlModal(b.dataset.showUrl, events.find(e => e.id === b.dataset.showUrl)));
+  });
+  container.querySelectorAll('[data-archive]').forEach(b => {
+    b.addEventListener('click', async () => {
+      if (!confirm('このイベントをアーカイブしますか？')) return;
+      try { await DB.updateEvent(b.dataset.archive, { status: 'archived' }); await loadEvents(); showToast('アーカイブしました'); }
+      catch (err) { showToast('失敗しました', true); }
+    });
+  });
+  container.querySelectorAll('[data-delete]').forEach(b => {
+    b.addEventListener('click', async () => {
+      if (!confirm('このイベントを完全に削除しますか？\n投稿写真・コメント・個人情報なども全て削除されます。')) return;
+      try { await DB.deleteEvent(b.dataset.delete); await loadEvents(); showToast('削除しました'); }
+      catch (err) { showToast('失敗しました', true); }
+    });
+  });
+  container.querySelectorAll('[data-duplicate]').forEach(b => {
+    b.addEventListener('click', () => {
+      const src = events.find(ev => ev.id === b.dataset.duplicate);
+      if (src) duplicateEvent(src);
+    });
+  });
+}
+
+function showUrlModal(eventId, event) {
+  if (!event) return;
+  const baseUrl = location.href.replace(/\/[^\/]*(\?.*)?(\#.*)?$/, '');
+  const partUrl = `${baseUrl}/index.html?event=${encodeURIComponent(eventId)}`;
+  const hostUrl = `${baseUrl}/admin.html?event=${encodeURIComponent(eventId)}&key=${encodeURIComponent(event.host_key)}`;
+  $('#urlModalTitle').textContent = event.name;
+  $('#urlParticipant').textContent = partUrl;
+  $('#urlHost').textContent = hostUrl;
+  $('#urlOpenAdmin').href = hostUrl;
+  $('#urlModal').classList.add('show');
+}
+
+$('#urlClose').addEventListener('click', () => $('#urlModal').classList.remove('show'));
+$$('[data-copy]').forEach(b => {
+  b.addEventListener('click', () => {
+    const text = $('#' + b.dataset.copy).textContent;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => showToast('コピーしました')).catch(() => fallbackCopy(text));
+    } else fallbackCopy(text);
+  });
+});
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); showToast('コピーしました'); } catch (e) { showToast('コピー失敗', true); }
+  document.body.removeChild(ta);
+}
+
+// ============================================================
+// 新規作成・複製
+// ============================================================
+let DUPLICATE_SOURCE = null;
+
+$('#newEventBtn').addEventListener('click', () => {
+  DUPLICATE_SOURCE = null;
+  $('#createModalTitle').textContent = '新規イベント作成';
+  $('#newName').value = ''; $('#newId').value = ''; $('#newTheme').value = '家族の思い出';
+  $('#createModal').classList.add('show');
+  setTimeout(() => $('#newName').focus(), 100);
+});
+$('#createCancel').addEventListener('click', () => $('#createModal').classList.remove('show'));
+$('#newId').addEventListener('input', (e) => { e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''); });
+
+function duplicateEvent(srcEvent) {
+  DUPLICATE_SOURCE = srcEvent;
+  $('#createModalTitle').textContent = `「${srcEvent.name}」を複製`;
+  $('#newName').value = srcEvent.name + ' (コピー)';
+  $('#newId').value = (srcEvent.id + '_copy').slice(0, 40);
+  $('#newTheme').value = srcEvent.theme || '';
+  $('#createModal').classList.add('show');
+  setTimeout(() => $('#newName').focus(), 100);
+}
+
+$('#createConfirm').addEventListener('click', async () => {
+  const name = $('#newName').value.trim();
+  const id = $('#newId').value.trim();
+  const theme = $('#newTheme').value.trim();
+  if (!name) return showToast('イベント名を入力してください', true);
+  if (!id || !/^[a-z0-9_-]+$/.test(id)) return showToast('IDは半角英数字とハイフン・アンダースコアのみ', true);
+  try {
+    const exists = await DB.getEvent(id);
+    if (exists) return showToast('このIDは既に使われています', true);
+    let event;
+    if (DUPLICATE_SOURCE) {
+      // 設定をコピー、データはコピーしない
+      event = {
+        id, name, theme,
+        host_key: genHostKey(),
+        status: 'draft',
+        phase: 'waiting',
+        show_theme: DUPLICATE_SOURCE.show_theme,
+        show_nickname: DUPLICATE_SOURCE.show_nickname,
+        show_like_count: DUPLICATE_SOURCE.show_like_count,
+        bgm_enabled: DUPLICATE_SOURCE.bgm_enabled,
+        max_uploads_per_user: DUPLICATE_SOURCE.max_uploads_per_user,
+        slide_interval_seconds: DUPLICATE_SOURCE.slide_interval_seconds,
+        identifier_fields: DUPLICATE_SOURCE.identifier_fields || [],
+        identifier_required: DUPLICATE_SOURCE.identifier_required,
+        show_privacy_notice: DUPLICATE_SOURCE.show_privacy_notice,
+        retention_mode: DUPLICATE_SOURCE.retention_mode,
+        host_pin: DUPLICATE_SOURCE.host_pin,
+        privacy_policy_url: DUPLICATE_SOURCE.privacy_policy_url || '',
+        terms_url: DUPLICATE_SOURCE.terms_url || '',
+      };
+    } else {
+      event = {
+        id, name, theme,
+        host_key: genHostKey(),
+        status: 'draft',
+        privacy_policy_url: 'https://www.weeek-end.com/privacy-policy/',
+        terms_url: 'https://www.weeek-end.com/riyou-kiyaku/',
+      };
+    }
+    await DB.createEvent(event);
+    $('#createModal').classList.remove('show');
+    await loadEvents();
+    showToast(DUPLICATE_SOURCE ? '複製しました（設定のみコピー）' : 'イベントを作成しました');
+    showUrlModal(id, event);
+    DUPLICATE_SOURCE = null;
+  } catch (err) {
+    console.error(err);
+    showToast('作成失敗：' + (err.message || ''), true);
+  }
+});
+
+// ============================================================
+// パスワード設定
+// ============================================================
+$('#settingsBtn').addEventListener('click', () => {
+  $('#newPassword').value = '';
+  $('#settingsModal').classList.add('show');
+  setTimeout(() => $('#newPassword').focus(), 100);
+});
+$('#settingsCancel').addEventListener('click', () => $('#settingsModal').classList.remove('show'));
+$('#settingsSave').addEventListener('click', async () => {
+  const pw = $('#newPassword').value;
+  if (!pw) {
+    if (!confirm('パスワードを未設定にしますか？\n誰でもアクセス可能になります。')) return;
+    localStorage.removeItem(PASSWORD_KEY);
+    sessionStorage.removeItem(AUTH_KEY);
+    showToast('パスワードを削除しました。再ログインしてください');
+    setTimeout(() => location.reload(), 1500);
+    return;
+  }
+  if (pw.length < 4) return showToast('4文字以上で設定してください', true);
+  const hash = await hashPassword(pw);
+  localStorage.setItem(PASSWORD_KEY, hash);
+  sessionStorage.setItem(AUTH_KEY, hash);
+  $('#settingsModal').classList.remove('show');
+  showToast('パスワードを変更しました');
+});
+
+$('#logoutBtn').addEventListener('click', () => { if (confirm('ログアウトしますか？')) logout(); });
+
+$('#lockBtn').addEventListener('click', handleLockSubmit);
+$('#lockInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLockSubmit(); });
+
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'resetPwLink') {
+    e.preventDefault();
+    if (confirm('パスワードをリセットしますか？\n（このブラウザの認証情報のみ削除されます。Supabase上のデータは消えません）')) {
+      localStorage.removeItem(PASSWORD_KEY);
+      sessionStorage.removeItem(AUTH_KEY);
+      location.reload();
+    }
+  }
+});
+
+// ============================================================
+// 起動
+// ============================================================
+(async () => {
+  const ok = await checkAuth();
+  if (ok) enterApp();
+  else $('#lockInput').focus();
+})();
+</script>
+</body>
+</html>

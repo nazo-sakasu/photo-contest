@@ -1,0 +1,2902 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a3d52">
+<title>フォトコンテスト</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=Noto+Sans+JP:wght@500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="db.js"></script>
+<style>
+/* ============================================================
+   竹島水族館フォトコンテスト
+   - 水族館テーマ：深い海色とサンゴ／真珠アクセント
+   - スマホ前提 / PCではセンタリング
+   - dashed/border装飾の暴走を起こさない設計
+   ============================================================ */
+
+:root {
+  /* 海をテーマにした配色 */
+  --sea-deep: #0a3d52;        /* 深海 */
+  --sea: #14587a;             /* 海原 */
+  --sea-light: #2a8db5;       /* 浅瀬 */
+  --foam: #e8f1f5;            /* 波頭 */
+  --sand: #f5ede0;            /* 砂浜 */
+  --sand-2: #f5ede0;          /* カード（背景と同色 = 輪郭が見えない） */
+  --sand-3: #efe6d6;          /* 薄く区切りたい時用 */
+  --coral: #ff7d5c;           /* サンゴ */
+  --coral-soft: rgba(255,125,92,0.1);
+  --pearl: #e6c984;           /* 真珠ゴールド */
+  --pearl-soft: rgba(230,201,132,0.15);
+
+  --ink: #0a1f2a;
+  --ink-2: #2c4250;
+  --ink-3: #6c7d8a;
+  --ink-4: #b8c2cb;
+
+  --line: rgba(10,31,42,0.1);
+  --line-2: rgba(10,31,42,0.2);
+
+  --shadow-sm: 0 1px 2px rgba(10,31,42,0.06);
+  --shadow-md: 0 4px 12px rgba(10,31,42,0.08);
+  --shadow-lg: 0 16px 32px rgba(10,31,42,0.15);
+  --shadow-pearl: 0 8px 32px rgba(230,201,132,0.3);
+
+  --r-sm: 8px;
+  --r: 14px;
+  --r-lg: 20px;
+
+  --font-jp: 'Noto Sans JP', system-ui, sans-serif;
+  --font-en: 'Inter', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; overscroll-behavior: none; }
+
+body {
+  background: var(--sand);
+  color: var(--ink);
+  font-family: var(--font-jp);
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+  overflow: hidden;
+}
+
+/* PC時のセンタリング */
+@media (min-width: 540px) {
+  body { display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--sea-deep); }
+  .frame { width: 420px; height: min(900px, calc(100dvh - 40px)); border-radius: 28px; }
+}
+
+/* メインフレーム：全コンテンツのコンテナ */
+.frame {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--sand);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* 海の背景パターン（水族館テーマ） */
+.frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(42,141,181,0.08) 0%, transparent 35%),
+    radial-gradient(circle at 85% 80%, rgba(20,88,122,0.06) 0%, transparent 40%),
+    radial-gradient(circle at 50% 50%, rgba(230,201,132,0.04) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+#app { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; }
+
+/* ============================================================
+   1. 名前入力モーダル
+   ============================================================ */
+.name-modal {
+  position: absolute;
+  inset: 0;
+  background: var(--sea-deep);
+  background-image:
+    radial-gradient(circle at 20% 20%, rgba(42,141,181,0.4) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(255,125,92,0.15) 0%, transparent 50%);
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 28px 32px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.name-modal.hidden { display: none; }
+
+.name-modal__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 32px;
+  flex-shrink: 0;
+}
+
+.name-modal__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
+}
+
+.brand-fish {
+  width: 36px;
+  height: 36px;
+  background: var(--coral);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(255,125,92,0.4);
+}
+
+.brand-text {
+  color: var(--foam);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+}
+
+.brand-text small {
+  display: block;
+  color: rgba(232,241,245,0.6);
+  font-weight: 500;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.name-modal__step {
+  font-family: var(--font-en);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--coral);
+  letter-spacing: 0.2em;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.name-modal__step::before { content: ''; width: 24px; height: 1px; background: var(--coral); }
+
+.name-modal__title {
+  font-weight: 800;
+  font-size: 32px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+  color: var(--foam);
+}
+
+.name-modal__sub {
+  font-size: 13px;
+  color: rgba(232,241,245,0.75);
+  line-height: 1.7;
+  margin-bottom: 36px;
+  font-weight: 500;
+}
+
+.name-input {
+  width: 100%;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(232,241,245,0.2);
+  border-radius: var(--r);
+  padding: 18px 20px;
+  font-family: var(--font-jp);
+  font-size: 17px;
+  color: var(--foam);
+  outline: none;
+  font-weight: 500;
+  transition: all 0.25s;
+}
+
+.name-input::placeholder { color: rgba(232,241,245,0.4); font-weight: 400; }
+.name-input:focus { border-color: var(--coral); background: rgba(255,255,255,0.12); }
+
+.name-modal__btn {
+  margin-top: 16px;
+  background: var(--coral);
+  color: var(--foam);
+  border: none;
+  padding: 18px;
+  font-family: var(--font-jp);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: var(--r);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.name-modal__btn:active { transform: scale(0.98); background: #ff5e3a; }
+
+/* 識別情報フィールド */
+.id-field { margin-top: 12px; }
+
+.id-field__label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pearl);
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.id-field__label--required::after {
+  content: '必須';
+  display: inline-block;
+  font-size: 9px;
+  background: var(--coral);
+  color: var(--foam);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.id-field__label--optional::after {
+  content: '任意';
+  display: inline-block;
+  font-size: 9px;
+  background: rgba(232,241,245,0.15);
+  color: rgba(232,241,245,0.7);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.id-field input {
+  width: 100%;
+  background: rgba(255,255,255,0.08);
+  border-radius: var(--r);
+  padding: 14px 18px;
+  font-family: var(--font-jp);
+  font-size: 15px;
+  color: var(--foam);
+  outline: none;
+  font-weight: 500;
+  border: 1px solid rgba(232,241,245,0.2);
+  transition: all 0.25s;
+}
+
+.id-field input::placeholder { color: rgba(232,241,245,0.4); font-weight: 400; }
+.id-field input:focus { border-color: var(--coral); background: rgba(255,255,255,0.12); }
+
+/* プライバシー注意 */
+.privacy-notice {
+  margin-top: 18px;
+  background: rgba(255,255,255,0.06);
+  border-radius: var(--r);
+  padding: 14px 16px;
+}
+
+.privacy-notice__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--pearl);
+  margin-bottom: 8px;
+}
+
+.privacy-notice__icon { font-size: 14px; }
+
+.privacy-notice__text {
+  font-size: 11px;
+  color: rgba(232,241,245,0.75);
+  line-height: 1.7;
+  margin-bottom: 10px;
+}
+
+.privacy-notice__text b { color: var(--foam); }
+
+.privacy-notice__links {
+  font-size: 11px;
+  color: rgba(232,241,245,0.75);
+  line-height: 1.7;
+  margin-bottom: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(232,241,245,0.1);
+}
+.privacy-notice__links a {
+  color: var(--coral);
+  text-decoration: underline;
+  font-weight: 700;
+}
+.privacy-notice__links a:hover { opacity: 0.8; }
+
+.privacy-consent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--foam);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.privacy-consent input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--coral);
+  cursor: pointer;
+}
+
+/* PINロックモーダル（ホスト用） */
+.pin-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10,31,42,0.75);
+  z-index: 800;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.pin-modal-backdrop.show { display: flex; }
+
+.pin-modal {
+  background: var(--sand);
+  border-radius: var(--r-lg);
+  padding: 28px 24px;
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+}
+
+.pin-modal__icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  background: var(--ink);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.pin-modal__title { font-weight: 800; font-size: 18px; margin-bottom: 6px; color: var(--ink); }
+.pin-modal__sub { font-size: 12px; color: var(--ink-3); margin-bottom: 18px; line-height: 1.6; }
+
+.pin-modal__input {
+  width: 100%;
+  background: var(--sand-2);
+  border: 2px solid transparent;
+  border-radius: var(--r);
+  padding: 16px;
+  font-family: var(--font-en);
+  font-size: 24px;
+  text-align: center;
+  letter-spacing: 0.5em;
+  color: var(--ink);
+  outline: none;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.pin-modal__input:focus { border-color: var(--coral); background: var(--sand); }
+.pin-modal__input.error { border-color: var(--coral); animation: shake 0.3s; }
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-8px); }
+  75% { transform: translateX(8px); }
+}
+
+.pin-modal__actions { display: flex; gap: 8px; }
+.pin-modal__btn { flex: 1; padding: 14px; border: none; border-radius: var(--r); font-weight: 700; font-size: 13px; cursor: pointer; }
+.pin-modal__btn--primary { background: var(--ink); color: var(--foam); }
+.pin-modal__btn--cancel { background: var(--sand-2); color: var(--ink-2); }
+
+/* 識別情報チェックボックス（ホスト設定） */
+.id-fields-config { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+
+.id-field-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--sand-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.id-field-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--coral);
+  cursor: pointer;
+}
+
+.id-field-check__icon { font-size: 16px; }
+
+/* ============================================================
+   2. ヘッダー / テーマバナー / タブ
+   ============================================================ */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px 12px;
+  flex-shrink: 0;
+}
+
+.header__brand { display: flex; align-items: center; gap: 8px; }
+
+.header__brand-mark {
+  width: 28px;
+  height: 28px;
+  background: var(--sea-deep);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.header__brand-text {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.header__brand-text small {
+  display: block;
+  color: var(--ink-3);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin-top: 1px;
+}
+
+.header__user-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 100px;
+  background: var(--sand-2);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.header__user-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--coral);
+  box-shadow: 0 0 0 3px rgba(255,125,92,0.2);
+}
+
+.theme-banner {
+  background: var(--sea-deep);
+  color: var(--foam);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.theme-banner__label {
+  font-family: var(--font-en);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  background: rgba(255,255,255,0.15);
+  padding: 3px 8px;
+  border-radius: 100px;
+  flex-shrink: 0;
+}
+
+.theme-banner__text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.tabs {
+  display: flex;
+  padding: 4px;
+  margin: 12px 20px 0;
+  background: var(--sand-2);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.tab {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  padding: 9px 0;
+  font-family: var(--font-jp);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.25s;
+}
+
+.tab.active { background: var(--sand); color: var(--ink); box-shadow: var(--shadow-sm); }
+
+/* ============================================================
+   3. ビューコンテナ
+   ============================================================ */
+.views { flex: 1; position: relative; overflow: hidden; }
+
+.view {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+
+.view.active { opacity: 1; pointer-events: auto; }
+
+/* ============================================================
+   4. 投稿ビュー
+   注意：dashed border は使用禁止（左辺だけ表示される問題回避）
+   ============================================================ */
+.upload { padding: 16px 20px 100px; min-height: 100%; }
+
+.upload__hero {
+  background: linear-gradient(135deg, var(--sea-deep), var(--sea));
+  color: var(--foam);
+  border-radius: var(--r-lg);
+  padding: 22px;
+  margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+}
+
+.upload__hero::before {
+  content: '🐠';
+  position: absolute;
+  bottom: -10px;
+  right: -8px;
+  font-size: 80px;
+  opacity: 0.15;
+  transform: rotate(-15deg);
+}
+
+.upload__hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-en);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--pearl);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.upload__hero-tag::before { content: ''; width: 6px; height: 6px; background: var(--pearl); border-radius: 50%; }
+
+.upload__title {
+  font-weight: 800;
+  font-size: 22px;
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+  color: var(--foam);
+}
+
+.upload__sub {
+  font-size: 12px;
+  color: rgba(232,241,245,0.8);
+  line-height: 1.7;
+  font-weight: 500;
+}
+
+/* アップローダー：borderを使わず背景色で領域表現（線が見える問題回避） */
+.uploader {
+  background: var(--sand-2);
+  border-radius: var(--r-lg);
+  padding: 36px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 14px;
+}
+
+.uploader:active {
+  background: var(--coral-soft);
+}
+
+.uploader__icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 12px;
+  background: var(--foam);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.uploader__text { font-weight: 700; font-size: 15px; margin-bottom: 4px; color: var(--ink); }
+.uploader__hint { font-size: 11px; color: var(--ink-3); font-weight: 500; }
+.uploader input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; left: -9999px; }
+
+#previewSlot:empty { display: none; }
+
+.preview {
+  margin-bottom: 14px;
+}
+
+.preview__frame {
+  width: 100%;
+  aspect-ratio: 4/5;
+  overflow: hidden;
+  position: relative;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.preview__frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.preview__remove {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.95);
+  border: none;
+  color: var(--ink);
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+
+.submit-btn {
+  width: 100%;
+  background: var(--ink);
+  color: var(--foam);
+  border: none;
+  padding: 16px;
+  font-family: var(--font-jp);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: var(--r);
+}
+
+.submit-btn:disabled { background: var(--sand-2); color: var(--ink-3); cursor: not-allowed; }
+.submit-btn:not(:disabled):active { transform: scale(0.98); background: var(--coral); }
+
+.upload__meta {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--sand-2);
+  border-radius: var(--r);
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.upload__meta b { color: var(--ink); font-weight: 700; margin-left: 4px; }
+
+/* ============================================================
+   5. ギャラリー
+   ============================================================ */
+.gallery { height: 100%; padding: 12px 20px 20px; display: flex; flex-direction: column; }
+
+.gallery__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 40px;
+}
+
+.gallery__empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.4; }
+.gallery__empty-text { font-size: 16px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+.gallery__empty-hint { font-size: 12px; color: var(--ink-3); font-weight: 500; line-height: 1.6; }
+
+.gallery__stage {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--sea-deep);
+  box-shadow: var(--shadow-md);
+}
+
+.photo-card {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.6s;
+}
+
+.photo-card.active { opacity: 1; }
+
+.photo-card__image-wrap { position: absolute; inset: 0; }
+
+.photo-card__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.photo-card__bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(40px) brightness(0.5) saturate(1.3);
+  transform: scale(1.2);
+}
+
+.photo-card__progress {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  height: 3px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 100px;
+  z-index: 5;
+  overflow: hidden;
+}
+
+.photo-card__progress-fill { height: 100%; background: var(--foam); width: 0; }
+
+.photo-card__info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 26px 16px 16px;
+  background: linear-gradient(to top, rgba(0,0,0,0.75), transparent);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 4;
+}
+
+.photo-card__meta { flex: 1; min-width: 0; color: white; }
+.photo-card__by { font-family: var(--font-en); font-size: 9px; color: rgba(255,255,255,0.65); font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 4px; }
+.photo-card__name { font-weight: 700; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.photo-card__count { font-size: 11px; color: rgba(255,255,255,0.85); margin-top: 4px; font-weight: 600; }
+
+.like-btn, .mine-badge {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.96);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  border: none;
+}
+
+.like-btn { cursor: pointer; transition: transform 0.2s, background 0.2s; }
+.like-btn:active { transform: scale(0.92); }
+.like-btn.liked { background: var(--coral); }
+.like-btn__heart { width: 24px; height: 24px; fill: var(--ink-3); }
+.like-btn.liked .like-btn__heart { fill: white; animation: heartPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.like-btn__count { font-family: var(--font-en); font-size: 10px; font-weight: 700; color: var(--ink); margin-top: 1px; }
+.like-btn.liked .like-btn__count { color: white; }
+
+@keyframes heartPop { 0% { transform: scale(1); } 30% { transform: scale(1.4); } 60% { transform: scale(0.9); } 100% { transform: scale(1); } }
+
+.mine-badge svg { width: 24px; height: 24px; fill: var(--pearl); }
+
+.heart-float {
+  position: absolute;
+  pointer-events: none;
+  font-size: 28px;
+  z-index: 10;
+  color: var(--coral);
+  animation: floatUp 1.2s ease-out forwards;
+}
+
+@keyframes floatUp {
+  0% { transform: translateY(0) scale(0.5); opacity: 1; }
+  50% { transform: translateY(-60px) scale(1.4) rotate(-15deg); opacity: 1; }
+  100% { transform: translateY(-160px) scale(0.8) rotate(20deg); opacity: 0; }
+}
+
+.report-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.4);
+  border: none;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.report-btn.reported { background: var(--coral); opacity: 1; }
+
+.comment-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6;
+  background: rgba(0,0,0,0.5);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.gallery__counter {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  font-family: var(--font-en);
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  background: rgba(0,0,0,0.5);
+  padding: 5px 12px;
+  border-radius: 100px;
+  letter-spacing: 0.05em;
+}
+
+/* スライド左右ナビ：透明だが大きいタップ領域 */
+.nav-zone {
+  position: absolute;
+  top: 30%;
+  bottom: 30%;
+  width: 25%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  z-index: 7;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-zone--prev { left: 0; }
+.nav-zone--next { right: 0; }
+
+.nav-zone:active::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 36px;
+  background: rgba(255,255,255,0.5);
+  border-radius: 50%;
+}
+
+/* ============================================================
+   6. 結果ビュー
+   ============================================================ */
+.result {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.result__waiting {
+  text-align: center;
+  width: 100%;
+  background: linear-gradient(135deg, var(--sea-deep), var(--sea));
+  color: var(--foam);
+  border-radius: var(--r-lg);
+  padding: 48px 28px;
+  box-shadow: var(--shadow-md);
+}
+
+.result__waiting-icon { font-size: 48px; margin-bottom: 16px; display: inline-block; animation: bob 2s ease-in-out infinite; }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+.result__waiting-tag { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-en); font-size: 10px; font-weight: 700; color: var(--pearl); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 8px; }
+.result__waiting-tag::before { content: ''; width: 6px; height: 6px; background: var(--pearl); border-radius: 50%; }
+
+.result__waiting-title { font-weight: 800; font-size: 26px; letter-spacing: -0.02em; line-height: 1.3; margin-bottom: 12px; color: var(--foam); }
+.result__waiting-sub { font-size: 12px; color: rgba(232,241,245,0.75); line-height: 1.7; font-weight: 500; }
+
+.countdown { position: absolute; inset: 0; display: none; justify-content: center; align-items: center; background: var(--ink); z-index: 50; }
+.countdown.show { display: flex; }
+.countdown__num { font-family: var(--font-en); font-weight: 800; font-size: 240px; line-height: 1; color: var(--foam); animation: countPop 1s ease-out; letter-spacing: -0.05em; }
+
+@keyframes countPop { 0% { transform: scale(0.5); opacity: 0; } 50% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); } }
+
+.rank-reveal { width: 100%; text-align: center; display: none; animation: rankIn 1.2s cubic-bezier(0.16, 1, 0.3, 1); }
+.rank-reveal.show { display: block; }
+@keyframes rankIn { 0% { opacity: 0; transform: translateY(40px); } 100% { opacity: 1; transform: translateY(0); } }
+
+.rank-reveal__label {
+  display: inline-block;
+  font-family: var(--font-en);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--foam);
+  background: var(--ink);
+  padding: 6px 14px;
+  border-radius: 100px;
+  letter-spacing: 0.2em;
+  margin-bottom: 18px;
+}
+
+.rank-reveal[data-rank="1"] .rank-reveal__label { background: var(--pearl); color: var(--ink); }
+
+.rank-reveal__num-wrap { display: inline-flex; align-items: baseline; margin-bottom: 8px; }
+.rank-reveal__num { font-family: var(--font-en); font-weight: 800; font-size: 130px; line-height: 1; letter-spacing: -0.06em; color: var(--ink); }
+.rank-reveal__suffix { font-family: var(--font-en); font-weight: 700; font-size: 26px; color: var(--ink-3); margin-left: 4px; }
+
+.rank-reveal[data-rank="1"] .rank-reveal__num { color: var(--pearl); font-size: 170px; text-shadow: 0 8px 32px rgba(230,201,132,0.4); }
+.rank-reveal[data-rank="2"] .rank-reveal__num { color: #95a3b8; }
+.rank-reveal[data-rank="3"] .rank-reveal__num { color: #b8814a; }
+
+.rank-reveal__photo {
+  width: 100%;
+  max-width: 260px;
+  aspect-ratio: 4/5;
+  margin: 12px auto 22px;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  animation: photoIn 1s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+}
+
+.rank-reveal[data-rank="1"] .rank-reveal__photo { box-shadow: var(--shadow-pearl), var(--shadow-lg); }
+
+@keyframes photoIn { 0% { opacity: 0; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1); } }
+
+.rank-reveal__photo img { width: 100%; height: 100%; object-fit: cover; }
+.rank-reveal__name { font-weight: 700; font-size: 22px; margin-bottom: 12px; color: var(--ink); }
+
+.rank-reveal__likes {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--ink);
+  color: var(--foam);
+  padding: 8px 18px;
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rank-reveal[data-rank="1"] .rank-reveal__likes { background: var(--pearl); color: var(--ink); }
+.rank-reveal__likes b { font-weight: 800; font-size: 16px; }
+
+.confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 30; display: none; }
+.confetti.show { display: block; }
+.confetti__piece { position: absolute; width: 8px; height: 14px; top: -20px; border-radius: 1px; animation: fall linear infinite; }
+@keyframes fall { 0% { transform: translateY(0) rotateZ(0deg); } 100% { transform: translateY(110vh) rotateZ(720deg); } }
+
+/* 最終一覧 */
+.final-list { width: 100%; display: none; animation: fadeIn 0.8s ease; }
+.final-list.show { display: block; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.final-list__title { text-align: center; margin-bottom: 22px; }
+.final-list__tag { display: inline-block; font-family: var(--font-en); font-size: 10px; font-weight: 700; color: var(--coral); background: var(--coral-soft); padding: 5px 12px; border-radius: 100px; letter-spacing: 0.2em; margin-bottom: 8px; }
+.final-list__h { font-weight: 800; font-size: 28px; letter-spacing: -0.02em; line-height: 1; color: var(--ink); }
+
+.final-list__items { display: flex; flex-direction: column; gap: 10px; }
+
+.final-item {
+  display: grid;
+  grid-template-columns: 44px 1fr 56px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  background: var(--sand-2);
+  border-radius: var(--r);
+}
+
+.final-item--1 {
+  background: linear-gradient(135deg, var(--pearl-soft), transparent);
+  border-color: var(--pearl);
+}
+
+.final-item__rank { font-family: var(--font-en); font-weight: 800; font-size: 28px; color: var(--ink-3); text-align: center; line-height: 1; }
+.final-item--1 .final-item__rank { color: var(--pearl); }
+.final-item--2 .final-item__rank { color: #95a3b8; }
+.final-item--3 .final-item__rank { color: #b8814a; }
+
+.final-item__name { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); margin-bottom: 2px; }
+.final-item__likes { font-size: 11px; color: var(--ink-3); font-weight: 600; }
+.final-item__likes b { color: var(--coral); font-weight: 800; font-size: 12px; }
+
+.final-item__photo-wrap { width: 56px; height: 56px; overflow: hidden; background: var(--sand-2); border-radius: 8px; }
+.final-item__photo-wrap img { width: 100%; height: 100%; object-fit: cover; }
+
+/* 特別賞 */
+.special-section { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line); }
+.special-section__h { font-family: var(--font-en); font-size: 10px; font-weight: 700; color: var(--coral); letter-spacing: 0.2em; text-align: center; margin-bottom: 14px; }
+
+.special-award {
+  display: grid;
+  grid-template-columns: 56px 1fr 56px;
+  gap: 12px;
+  align-items: center;
+  background: linear-gradient(135deg, var(--coral-soft), transparent);
+  border-radius: var(--r);
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.special-award__icon { width: 56px; height: 56px; background: var(--coral); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; color: white; }
+.special-award__title { font-size: 11px; font-weight: 700; color: var(--coral); letter-spacing: 0.05em; margin-bottom: 2px; }
+.special-award__name { font-size: 14px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.special-award__photo-wrap { width: 56px; height: 56px; overflow: hidden; border-radius: 8px; }
+.special-award__photo-wrap img { width: 100%; height: 100%; object-fit: cover; }
+
+.save-result-btn { display: block; width: 100%; margin-top: 20px; background: var(--ink); color: var(--foam); border: none; padding: 14px; font-family: var(--font-jp); font-size: 13px; font-weight: 700; cursor: pointer; border-radius: var(--r); }
+.save-result-btn:hover { background: var(--coral); }
+.save-result-btn:disabled { background: var(--sand-2); color: var(--ink-3); cursor: not-allowed; }
+
+/* ============================================================
+   7. Toast / モーダル
+   ============================================================ */
+.toast {
+  position: absolute;
+  bottom: 88px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--ink);
+  color: var(--foam);
+  padding: 12px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 600;
+  white-space: nowrap;
+  border-radius: 100px;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.3s, transform 0.3s, visibility 0s 0.3s;
+}
+
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); visibility: visible; transition: opacity 0.3s, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), visibility 0s; }
+.toast.error { background: var(--coral); }
+
+/* コメントモーダル */
+.modal-backdrop { position: absolute; inset: 0; background: rgba(10,31,42,0.6); z-index: 700; display: none; align-items: flex-end; justify-content: center; }
+.modal-backdrop.show { display: flex; }
+
+.modal {
+  width: 100%;
+  background: var(--sand);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  max-height: 75%;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+.modal__handle { width: 36px; height: 4px; background: var(--ink-4); border-radius: 100px; margin: 12px auto 0; }
+.modal__head { padding: 12px 20px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+.modal__head-info { flex: 1; min-width: 0; }
+.modal__title { font-size: 14px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.modal__sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; font-weight: 500; }
+.modal__close { background: var(--sand-2); border: none; color: var(--ink-2); width: 32px; height: 32px; border-radius: 50%; font-size: 18px; cursor: pointer; flex-shrink: 0; }
+.modal__body { flex: 1; overflow-y: auto; padding: 8px 20px 12px; }
+
+.comment { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.comment:last-child { border-bottom: none; }
+.comment__avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--sand-2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: var(--ink-2); flex-shrink: 0; }
+.comment__main { flex: 1; min-width: 0; }
+.comment__name { font-size: 12px; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+.comment__name b { color: var(--coral); font-weight: 700; margin-left: 4px; font-size: 10px; }
+.comment__text { font-size: 13px; color: var(--ink-2); line-height: 1.5; word-wrap: break-word; }
+
+.comments-empty { text-align: center; padding: 32px 16px; color: var(--ink-3); font-size: 13px; }
+.comments-empty__icon { font-size: 32px; margin-bottom: 8px; opacity: 0.4; }
+
+.modal__input-wrap { border-top: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 8px; align-items: center; }
+.modal__input { flex: 1; background: var(--sand-2); border: none; border-radius: 100px; padding: 10px 16px; font-family: var(--font-jp); font-size: 13px; color: var(--ink); outline: none; font-weight: 500; }
+.modal__send { background: var(--ink); color: var(--foam); border: none; width: 38px; height: 38px; border-radius: 50%; cursor: pointer; font-size: 16px; }
+.modal__send:disabled { background: var(--sand-2); cursor: not-allowed; }
+
+/* ============================================================
+   8. BGMコントロール
+   ============================================================ */
+.bgm-ctrl {
+  position: absolute;
+  top: 64px;
+  right: 16px;
+  z-index: 100;
+  background: var(--sand-2);
+  border-radius: 100px;
+  padding: 6px 10px 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.bgm-ctrl.muted { opacity: 0.55; }
+.bgm-ctrl__icon { font-size: 14px; line-height: 1; }
+
+/* DEMOバッジ */
+.demo-badge { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 200; background: var(--ink); color: var(--foam); padding: 4px 12px; font-family: var(--font-en); font-size: 8px; font-weight: 700; letter-spacing: 0.25em; border-radius: 100px; pointer-events: none; }
+
+/* ============================================================
+   9. ホストパネル
+   ============================================================ */
+.host-toggle {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  z-index: 250;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--foam);
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: var(--shadow-lg);
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.host-toggle.show { display: flex; }
+
+.host-panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--sand);
+  z-index: 240;
+  max-height: 80%;
+  overflow-y: auto;
+  transform: translateY(100%);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+}
+
+.host-panel.show { transform: translateY(0); }
+.host-panel__handle { width: 36px; height: 4px; background: var(--ink-4); border-radius: 100px; margin: 12px auto 0; }
+.host-panel__head { position: sticky; top: 0; background: var(--sand); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); }
+.host-panel__title { font-size: 13px; font-weight: 700; color: var(--ink); }
+.host-panel__title small { display: block; font-size: 10px; color: var(--ink-3); margin-top: 2px; font-weight: 500; }
+.host-panel__close { background: var(--sand-2); border: none; color: var(--ink-2); width: 32px; height: 32px; border-radius: 50%; font-size: 18px; cursor: pointer; }
+.host-panel__body { padding: 18px 24px 28px; }
+.host-section { margin-bottom: 22px; }
+.host-section__h { font-family: var(--font-en); font-size: 10px; font-weight: 700; color: var(--ink-3); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 12px; }
+
+.flow-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.flow-grid__btn { background: var(--sand-2); border: 1px solid transparent; color: var(--ink); padding: 13px 8px; font-family: var(--font-jp); font-size: 13px; font-weight: 700; cursor: pointer; border-radius: var(--r-sm); }
+.flow-grid__btn:hover:not(:disabled) { background: var(--sand); border-color: var(--line); }
+.flow-grid__btn.active { background: var(--ink); color: var(--foam); }
+.flow-grid__btn.gold.active { background: var(--pearl); color: var(--ink); box-shadow: var(--shadow-pearl); }
+
+.host-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: var(--sand-2); border-radius: var(--r-sm); margin-bottom: 8px; }
+.host-row__label { font-size: 13px; font-weight: 600; }
+.host-row__hint { font-size: 11px; color: var(--ink-3); margin-top: 2px; font-weight: 400; }
+
+.host-input { background: var(--sand); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px 12px; font-family: var(--font-jp); font-size: 13px; color: var(--ink); outline: none; font-weight: 500; }
+.host-input:focus { border-color: var(--ink); }
+.host-input--num { width: 80px; }
+
+.toggle { position: relative; width: 42px; height: 24px; cursor: pointer; flex-shrink: 0; }
+.toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.toggle__slider { position: absolute; inset: 0; background: var(--ink-4); border-radius: 100px; transition: 0.3s; }
+.toggle__slider::before { content: ''; position: absolute; width: 18px; height: 18px; background: var(--sand); border-radius: 50%; top: 3px; left: 3px; transition: 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+.toggle input:checked ~ .toggle__slider { background: var(--coral); }
+.toggle input:checked ~ .toggle__slider::before { left: 21px; }
+
+.special-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.special-item { background: var(--sand-2); border-radius: var(--r-sm); padding: 10px 12px; }
+.special-item__row { display: grid; grid-template-columns: 1fr 1fr 32px; gap: 6px; align-items: center; }
+.special-item .host-input { font-size: 12px; padding: 8px 10px; }
+.special-item__del { background: var(--coral-soft); border: none; color: var(--coral); width: 32px; height: 32px; border-radius: 50%; font-size: 16px; cursor: pointer; }
+.special-add { background: var(--sand-2); border: none; color: var(--ink-2); padding: 10px; font-family: var(--font-jp); font-size: 12px; font-weight: 600; cursor: pointer; border-radius: var(--r-sm); width: 100%; }
+.special-add:hover { background: var(--sand); }
+
+.report-list { display: flex; flex-direction: column; gap: 8px; }
+.report-item { display: grid; grid-template-columns: 48px 1fr auto auto; gap: 10px; align-items: center; padding: 8px; background: var(--sand-2); border-radius: var(--r-sm); }
+.report-item__photo { width: 48px; height: 48px; border-radius: 8px; overflow: hidden; }
+.report-item__photo img { width: 100%; height: 100%; object-fit: cover; }
+.report-item__info { min-width: 0; }
+.report-item__name { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.report-item__count { font-size: 10px; color: var(--coral); font-weight: 600; margin-top: 1px; }
+.report-item__btn { background: transparent; border: 1px solid var(--line); color: var(--ink); padding: 6px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+.report-item__btn--del { color: var(--coral); border-color: rgba(255,125,92,0.3); }
+
+.empty-state { text-align: center; padding: 24px; color: var(--ink-3); font-size: 12px; }
+
+/* スケジュール折り畳みフィールド */
+.sched-fields { padding-left: 12px; border-left: 2px solid var(--coral); margin: 6px 0 0; }
+.sched-fields .host-row { background: transparent; padding: 8px 12px; }
+.sched-fields .host-input { width: 180px; }
+
+.demo-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.demo-btn { background: var(--sand-2); border: 1px solid transparent; color: var(--ink); padding: 11px 8px; font-family: var(--font-jp); font-size: 11px; font-weight: 600; cursor: pointer; border-radius: var(--r-sm); }
+.demo-btn:hover { background: var(--sand); border-color: var(--line); }
+.demo-btn--danger { color: var(--coral); }
+
+::-webkit-scrollbar { width: 0; height: 0; }
+</style>
+</head>
+<body>
+
+<div class="frame">
+
+  <button class="bgm-ctrl muted" id="bgmCtrl"><span class="bgm-ctrl__icon" id="bgmIcon">🔇</span><span id="bgmLabel">BGM</span></button>
+
+  <div id="app">
+
+    <!-- 名前入力モーダル -->
+    <div class="name-modal" id="nameModal">
+      <div class="name-modal__brand">
+        <div class="brand-fish">🐟</div>
+        <div class="brand-text">
+          竹島水族館 フォトコンテスト
+          <small>TAKESHIMA AQUARIUM PHOTO CONTEST</small>
+        </div>
+      </div>
+      <div class="name-modal__content">
+      <div class="name-modal__step">STEP / 01</div>
+      <h1 class="name-modal__title">あなたの<br>お名前は？</h1>
+      <p class="name-modal__sub">投稿時に表示されるお名前です。<br>家族みんなで楽しんでください。</p>
+      <input type="text" class="name-input" id="nameInput" placeholder="例：竹島太郎" maxlength="20" autocomplete="off">
+
+      <!-- 識別情報フィールド（動的生成） -->
+      <div id="identifierFields"></div>
+
+      <!-- プライバシー注意書き -->
+      <div class="privacy-notice" id="privacyNotice" style="display:none;">
+        <div class="privacy-notice__head">
+          <span class="privacy-notice__icon">🔒</span>
+          <span>個人情報の取り扱いについて</span>
+        </div>
+        <p class="privacy-notice__text">
+          入力された個人情報（連絡先等）は<b>受賞者への景品連絡のみ</b>に使用します。
+          一般参加者には<b>絶対に表示されません</b>。
+          イベント終了後、<b id="privacyRetention">10日以内に自動削除</b>されます。
+        </p>
+        <p class="privacy-notice__links" id="privacyLinks" style="display:none;"></p>
+        <label class="privacy-consent">
+          <input type="checkbox" id="privacyConsent">
+          <span>上記に同意して参加します</span>
+        </label>
+      </div>
+
+      <button class="name-modal__btn" id="nameSubmit">参加する →</button>
+      </div>
+    </div>
+
+    <!-- ヘッダー -->
+    <header class="header">
+      <div class="header__brand">
+        <div class="header__brand-mark">🐟</div>
+        <div class="header__brand-text">
+          竹島水族館
+          <small>PHOTO CONTEST</small>
+        </div>
+      </div>
+      <div class="header__user-pill">
+        <span class="header__user-dot"></span>
+        <span id="userName">—</span>
+      </div>
+    </header>
+
+    <!-- テーマバナー -->
+    <div class="theme-banner" id="themeBanner">
+      <span class="theme-banner__label">THEME</span>
+      <span class="theme-banner__text" id="themeText">家族と水族館の思い出</span>
+    </div>
+
+    <!-- タブ -->
+    <nav class="tabs">
+      <button class="tab active" data-view="upload">投稿</button>
+      <button class="tab" data-view="gallery">みんなの写真</button>
+      <button class="tab" data-view="result">結果</button>
+    </nav>
+
+    <main class="views">
+
+      <!-- 投稿ビュー -->
+      <section class="view active" id="view-upload">
+        <div class="upload">
+          <div class="upload__hero">
+            <div class="upload__hero-tag">UPLOAD</div>
+            <h2 class="upload__title">あなたの一枚を<br>みんなにシェア</h2>
+            <p class="upload__sub">水族館で撮った写真をアップロード。<br>みんなが「いいね」で投票します。</p>
+          </div>
+
+          <label class="uploader" id="uploader">
+            <div class="uploader__icon">📷</div>
+            <div class="uploader__text">写真を選ぶ</div>
+            <div class="uploader__hint">タップしてアップロード</div>
+            <input type="file" id="fileInput" accept="image/*">
+          </label>
+
+          <div id="previewSlot"></div>
+
+          <button class="submit-btn" id="submitBtn" disabled><span>この写真を投稿する</span></button>
+
+          <div class="upload__meta">
+            <span>投稿者：<b id="metaName">—</b></span>
+            <span>投稿数：<b id="metaCount">0</b></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ギャラリービュー -->
+      <section class="view" id="view-gallery">
+        <div class="gallery">
+          <div class="gallery__empty" id="galleryEmpty">
+            <div class="gallery__empty-icon">🐠</div>
+            <div class="gallery__empty-text">まだ写真がありません</div>
+            <div class="gallery__empty-hint">投稿が始まるとここに写真が流れます</div>
+          </div>
+          <div class="gallery__counter" id="galleryCounter" style="display:none;">
+            <b id="counterCurrent">1</b> / <span id="counterTotal">1</span>
+          </div>
+          <div class="gallery__stage" id="galleryStage"></div>
+        </div>
+      </section>
+
+      <!-- 結果ビュー -->
+      <section class="view" id="view-result">
+        <div class="result">
+          <div class="result__waiting" id="resultWaiting">
+            <div class="result__waiting-icon">🎉</div>
+            <div class="result__waiting-tag">RESULT</div>
+            <h2 class="result__waiting-title" id="resultWaitingTitle">まもなく<br>結果発表！</h2>
+            <p class="result__waiting-sub" id="resultWaitingSub" style="display:none;"></p>
+          </div>
+
+          <div class="countdown" id="countdown"><div class="countdown__num" id="countdownNum">3</div></div>
+
+          <div class="rank-reveal" id="rankReveal">
+            <div class="rank-reveal__label" id="rankLabel">RANK</div>
+            <div class="rank-reveal__num-wrap">
+              <span class="rank-reveal__num" id="rankNum">5</span>
+              <span class="rank-reveal__suffix" id="rankSuffix">th</span>
+            </div>
+            <div class="rank-reveal__photo"><img id="rankPhoto" alt=""></div>
+            <div class="rank-reveal__name" id="rankName">—</div>
+            <div class="rank-reveal__likes">♥ <b id="rankLikes">0</b> いいね</div>
+          </div>
+
+          <div class="final-list" id="finalList">
+            <div class="final-list__title">
+              <div class="final-list__tag">FINAL RESULT</div>
+              <h3 class="final-list__h">TOP 5</h3>
+            </div>
+            <div class="final-list__items" id="finalItems"></div>
+            <div class="special-section" id="specialSection" style="display:none;">
+              <div class="special-section__h">— SPECIAL AWARDS —</div>
+              <div id="specialAwardsList"></div>
+            </div>
+            <button class="save-result-btn" id="saveResultBtn" style="display:none;">📥 結果を画像として保存</button>
+          </div>
+
+          <div class="confetti" id="confetti"></div>
+        </div>
+      </section>
+
+    </main>
+
+    <div class="toast" id="toast"></div>
+
+    <!-- PINロックモーダル -->
+    <div class="pin-modal-backdrop" id="pinModal">
+      <div class="pin-modal">
+        <div class="pin-modal__icon">🔒</div>
+        <div class="pin-modal__title">閲覧PINを入力</div>
+        <div class="pin-modal__sub">個人情報を表示するには<br>4桁の閲覧PINが必要です</div>
+        <input type="text" class="pin-modal__input" id="pinModalInput" maxlength="4" inputmode="numeric" placeholder="••••">
+        <div class="pin-modal__actions">
+          <button class="pin-modal__btn pin-modal__btn--cancel" id="pinModalCancel">キャンセル</button>
+          <button class="pin-modal__btn pin-modal__btn--primary" id="pinModalOk">確認</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- コメントモーダル -->
+    <div class="modal-backdrop" id="commentModal">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal__handle"></div>
+        <div class="modal__head">
+          <div class="modal__head-info">
+            <div class="modal__title" id="commentTitle">写真</div>
+            <div class="modal__sub" id="commentSub">コメント</div>
+          </div>
+          <button class="modal__close" id="commentClose">×</button>
+        </div>
+        <div class="modal__body" id="commentList"></div>
+        <div class="modal__input-wrap">
+          <input type="text" class="modal__input" id="commentInput" placeholder="コメントを入力（30文字まで）" maxlength="30">
+          <button class="modal__send" id="commentSend">→</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 1. 基本設定
+// ============================================================
+// 参加者用index.htmlでは isHost 強制 false
+const isHost = false;
+// URLからevent_id取得
+const URL_PARAMS = new URLSearchParams(location.search);
+const EVENT_ID = URL_PARAMS.get('event');
+if (!EVENT_ID) {
+  document.body.innerHTML = '<div style="padding:40px;text-align:center;font-family:sans-serif;color:#0a1f2a;"><h2 style="margin-bottom:10px;">イベントIDが指定されていません</h2><p style="color:#6c7d8a;">主催者から共有された正しいURLでアクセスしてください。</p></div>';
+  throw new Error('No event ID');
+}
+
+const USER_ID = (() => {
+  // localStorageに保存して同一ブラウザでは固定
+  let id = localStorage.getItem('photo_contest_user_id');
+  if (!id) {
+    id = 'u_' + Math.random().toString(36).slice(2, 14);
+    localStorage.setItem('photo_contest_user_id', id);
+  }
+  return id;
+})();
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uuid = () => 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+
+// ============================================================
+// 2. データストア
+// ============================================================
+const store = {
+  photos: [],
+  likes: [],
+  comments: [],
+  reports: [],
+  specials: [],
+  settings: {
+    phase: 'voting',
+    slide_interval_seconds: 5,
+    show_nickname: true,
+    show_like_count: false,
+    theme: '家族と水族館の思い出',
+    show_theme: true,
+    max_uploads_per_user: 5,
+    bgm_enabled: true,
+    // スケジュール
+    upload_schedule: { mode: 'none', start: null, end: null },
+    vote_schedule: { mode: 'none', start: null, end: null },
+    result_schedule: { mode: 'none', at: null },
+    schedule_action: 'auto',
+    // 識別情報（個人情報）設定
+    identifier_fields: ['phone'],     // ['phone','employee_id','email'] から複数選択
+    identifier_required: true,        // 必須/任意
+    show_privacy_notice: true,        // プライバシー説明を表示
+    retention_mode: 'auto10',         // 'auto10' | 'manual'
+    host_pin: '',                      // ホストが識別情報を見るためのPIN（4桁）
+    privacy_policy_url: '',             // プライバシーポリシーURL
+    terms_url: '',                      // 利用規約URL
+  },
+};
+
+const state = {
+  nickname: '',
+  identifiers: {},  // {phone:'...', employee_id:'...', email:'...'} ホストだけが参照
+  myPhotoIds: new Set(),
+  myLikes: new Set(),
+  likeCounts: new Map(),
+  myPhotoCount: 0,
+  myReports: new Set(),
+  commentCounts: new Map(),
+  gallery: { queue: [], currentIdx: 0, timer: null, paused: false },
+  lastPhase: null,
+  rankings: [],
+  rankingsFrozen: false,
+  lastLikeAt: 0,
+  toastTimer: null,
+  currentCommentPhotoId: null,
+};
+
+// ============================================================
+// 3. BGM Engine（Web Audio APIシンセ）
+// ============================================================
+const BGM = (() => {
+  let ctx, masterGain, currentLoop, userEnabled = true, initialized = false;
+
+  const init = () => {
+    if (initialized) return;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = ctx.createGain();
+      masterGain.gain.value = 0;
+      masterGain.connect(ctx.destination);
+      initialized = true;
+    } catch (e) {}
+  };
+
+  const note = (freq, t, dur, gain = 0.15, type = 'sine') => {
+    if (!ctx) return;
+    const osc = ctx.createOscillator(), env = ctx.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(gain, t + 0.02);
+    env.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(env); env.connect(masterGain);
+    osc.start(t); osc.stop(t + dur + 0.05);
+  };
+
+  const fadeIn = (d = 1.5) => { if (masterGain) { masterGain.gain.cancelScheduledValues(ctx.currentTime); masterGain.gain.setValueAtTime(masterGain.gain.value, ctx.currentTime); masterGain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + d); } };
+  const fadeOut = (d = 1) => { if (masterGain) { masterGain.gain.cancelScheduledValues(ctx.currentTime); masterGain.gain.setValueAtTime(masterGain.gain.value, ctx.currentTime); masterGain.gain.linearRampToValueAtTime(0, ctx.currentTime + d); } };
+
+  const startGalleryLoop = () => {
+    if (!ctx || currentLoop === 'gallery') return;
+    stopLoop();
+    currentLoop = 'gallery';
+    fadeIn(2);
+    const scale = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33];
+    const tick = () => {
+      if (currentLoop !== 'gallery' || !ctx) return;
+      const t = ctx.currentTime;
+      note(130.81, t, 4.5, 0.06);
+      note(196.00, t, 4.5, 0.04);
+      for (let i = 0; i < 3; i++) {
+        const f = scale[Math.floor(Math.random() * scale.length)];
+        note(f, t + i * 1.3 + Math.random() * 0.3, 1.5, 0.08);
+        if (Math.random() > 0.5) note(f * 1.5, t + i * 1.3 + 0.1, 0.8, 0.04, 'triangle');
+      }
+      setTimeout(tick, 4500);
+    };
+    tick();
+  };
+
+  const startResultLoop = () => {
+    if (!ctx || currentLoop === 'result') return;
+    stopLoop();
+    currentLoop = 'result';
+    fadeIn(1.5);
+    const tick = () => {
+      if (currentLoop !== 'result' || !ctx) return;
+      const t = ctx.currentTime;
+      note(98.00, t, 6, 0.12);
+      note(146.83, t, 6, 0.08);
+      note(196.00, t + 2, 4, 0.06);
+      [261.63, 329.63, 392.00].forEach((f, i) => note(f, t + 1 + i * 1.5, 2, 0.03, 'triangle'));
+      setTimeout(tick, 6000);
+    };
+    tick();
+  };
+
+  const stopLoop = () => { currentLoop = null; fadeOut(0.5); };
+  const ensureStart = () => { if (!initialized) init(); if (ctx && ctx.state === 'suspended') ctx.resume(); };
+
+  return {
+    ensureStart,
+    startGallery: () => { if (userEnabled) { ensureStart(); startGalleryLoop(); } },
+    startResult: () => { if (userEnabled) { ensureStart(); startResultLoop(); } },
+    countTick: () => {
+      if (!ctx || !userEnabled) return;
+      if (masterGain.gain.value < 0.1) fadeIn(0.2);
+      const t = ctx.currentTime;
+      note(880, t, 0.15, 0.3, 'square');
+      note(1320, t + 0.05, 0.1, 0.15);
+    },
+    revealChime: (rank) => {
+      if (!ctx || !userEnabled) return;
+      if (masterGain.gain.value < 0.1) fadeIn(0.3);
+      const t = ctx.currentTime;
+      const chords = { 5: [392.00, 523.25, 659.25], 4: [349.23, 440.00, 523.25], 3: [293.66, 369.99, 440.00], 2: [261.63, 329.63, 392.00, 523.25], 1: [261.63, 329.63, 392.00, 523.25, 659.25, 783.99] };
+      (chords[rank] || chords[5]).forEach((f, i) => note(f, t + i * 0.04, 1.5, rank === 1 ? 0.18 : 0.12, 'triangle'));
+      if (rank === 1) [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => note(f, t + 0.5 + i * 0.15, 0.6, 0.15));
+    },
+    stop: stopLoop,
+    setEnabled: (on) => { userEnabled = on; if (!on) stopLoop(); },
+    isEnabled: () => userEnabled,
+  };
+})();
+
+// ============================================================
+// 4. Toast
+// ============================================================
+function showToast(msg, isError = false) {
+  if (!msg) return;
+  const t = $('#toast');
+  if (state.toastTimer) clearTimeout(state.toastTimer);
+  t.textContent = msg;
+  t.classList.toggle('error', isError);
+  t.classList.add('show');
+  state.toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// ============================================================
+// 4-3. 識別情報（個人情報）管理
+// ============================================================
+const ID_FIELD_DEF = {
+  phone:       { label: '電話番号',      icon: '📞', placeholder: '09012345678', pattern: /^[0-9]{10,11}$/, errMsg: '10〜11桁の数字' },
+  employee_id: { label: '社員番号',      icon: '🆔', placeholder: 'E12345',      pattern: /^[A-Za-z0-9]{1,20}$/, errMsg: '英数字' },
+  email:       { label: 'メールアドレス', icon: '✉️', placeholder: 'name@example.com', pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, errMsg: 'メール形式' },
+};
+
+function renderIdentifierFields() {
+  const wrap = $('#identifierFields');
+  const fields = store.settings.identifier_fields || [];
+  if (fields.length === 0) {
+    wrap.innerHTML = '';
+    return;
+  }
+  const required = store.settings.identifier_required;
+  wrap.innerHTML = fields.map(key => {
+    const def = ID_FIELD_DEF[key];
+    if (!def) return '';
+    return `
+      <div class="id-field">
+        <label class="id-field__label ${required ? 'id-field__label--required' : 'id-field__label--optional'}">
+          ${def.icon} ${def.label}
+        </label>
+        <input type="${key === 'email' ? 'email' : 'text'}"
+               id="idInput_${key}"
+               placeholder="${def.placeholder}"
+               maxlength="${key === 'email' ? 100 : 20}"
+               autocomplete="off"
+               inputmode="${key === 'phone' ? 'numeric' : (key === 'email' ? 'email' : 'text')}">
+      </div>`;
+  }).join('');
+}
+
+function applyPrivacyNotice() {
+  const notice = $('#privacyNotice');
+  const fields = store.settings.identifier_fields || [];
+  // 識別情報がある かつ 表示設定ON のときだけ表示
+  if (fields.length > 0 && store.settings.show_privacy_notice) {
+    notice.style.display = 'block';
+    const retentionLabel = store.settings.retention_mode === 'auto10'
+      ? 'イベント終了後10日以内に自動削除'
+      : 'ホストが管理し、不要になり次第削除';
+    $('#privacyRetention').textContent = retentionLabel;
+    // URLリンクの表示
+    const linksEl = $('#privacyLinks');
+    if (linksEl) {
+      const ppUrl = (store.settings.privacy_policy_url || '').trim();
+      const tmUrl = (store.settings.terms_url || '').trim();
+      const links = [];
+      if (ppUrl) links.push(`<a href="${escapeHtml(ppUrl)}" target="_blank" rel="noopener">プライバシーポリシー</a>`);
+      if (tmUrl) links.push(`<a href="${escapeHtml(tmUrl)}" target="_blank" rel="noopener">利用規約</a>`);
+      if (links.length > 0) {
+        linksEl.innerHTML = '📄 詳しくは ' + links.join(' / ');
+        linksEl.style.display = 'block';
+      } else {
+        linksEl.style.display = 'none';
+      }
+    }
+  } else {
+    notice.style.display = 'none';
+  }
+}
+
+function validateAndCollectIdentifiers() {
+  const fields = store.settings.identifier_fields || [];
+  const required = store.settings.identifier_required;
+  const result = {};
+  for (const key of fields) {
+    const def = ID_FIELD_DEF[key];
+    const inp = $('#idInput_' + key);
+    if (!inp) continue;
+    const v = inp.value.trim();
+    if (!v) {
+      if (required) {
+        showToast(`${def.label}を入力してください`, true);
+        inp.focus();
+        return null;
+      }
+      continue;
+    }
+    if (!def.pattern.test(v)) {
+      showToast(`${def.label}の形式が正しくありません（${def.errMsg}）`, true);
+      inp.focus();
+      return null;
+    }
+    result[key] = v;
+  }
+  return result;
+}
+
+function checkPrivacyConsent() {
+  const fields = store.settings.identifier_fields || [];
+  if (fields.length === 0) return true;
+  if (!store.settings.show_privacy_notice) return true;
+  const c = $('#privacyConsent');
+  if (!c.checked) {
+    showToast('個人情報の取り扱いに同意してください', true);
+    return false;
+  }
+  return true;
+}
+
+// ============================================================
+// 4-2. スケジュール管理
+// ============================================================
+function isUploadAllowed() {
+  const s = store.settings.upload_schedule;
+  if (s.mode === 'none') return true;
+  const now = Date.now();
+  if (s.start && now < new Date(s.start).getTime()) return false;
+  if (s.mode === 'period' && s.end && now >= new Date(s.end).getTime()) return false;
+  return true;
+}
+
+function isVoteAllowed() {
+  const s = store.settings.vote_schedule;
+  if (s.mode === 'none') return true;
+  const now = Date.now();
+  if (s.start && now < new Date(s.start).getTime()) return false;
+  if (s.mode === 'period' && s.end && now >= new Date(s.end).getTime()) return false;
+  return true;
+}
+
+function getUploadStatus() {
+  const s = store.settings.upload_schedule;
+  if (s.mode === 'none') return { allowed: true };
+  const now = Date.now();
+  if (s.start && now < new Date(s.start).getTime()) {
+    return { allowed: false, reason: '投稿はまだ開始されていません' };
+  }
+  if (s.mode === 'period' && s.end && now >= new Date(s.end).getTime()) {
+    return { allowed: false, reason: '投稿受付は終了しました' };
+  }
+  return { allowed: true };
+}
+
+function getVoteStatus() {
+  const s = store.settings.vote_schedule;
+  if (s.mode === 'none') return { allowed: true };
+  const now = Date.now();
+  if (s.start && now < new Date(s.start).getTime()) {
+    return { allowed: false, reason: '投票はまだ開始されていません' };
+  }
+  if (s.mode === 'period' && s.end && now >= new Date(s.end).getTime()) {
+    return { allowed: false, reason: '投票は終了しました' };
+  }
+  return { allowed: true };
+}
+
+// 通知済みフラグ（重複通知防止）
+const scheduleNotified = { uploadEnd: false, voteEnd: false, resultAt: false };
+
+function checkSchedule() {
+  const now = Date.now();
+  const action = store.settings.schedule_action || 'auto';
+
+  // 投稿期間終了
+  const us = store.settings.upload_schedule;
+  if (us.mode === 'period' && us.end && now >= new Date(us.end).getTime() && !scheduleNotified.uploadEnd) {
+    scheduleNotified.uploadEnd = true;
+    showToast('投稿受付が終了しました');
+  }
+
+  // 投票期間終了
+  const vs = store.settings.vote_schedule;
+  if (vs.mode === 'period' && vs.end && now >= new Date(vs.end).getTime() && !scheduleNotified.voteEnd) {
+    scheduleNotified.voteEnd = true;
+    showToast('投票期間が終了しました');
+  }
+
+  // 結果発表時刻
+  const rs = store.settings.result_schedule;
+  if (rs.mode === 'auto' && rs.at && now >= new Date(rs.at).getTime() && !scheduleNotified.resultAt) {
+    scheduleNotified.resultAt = true;
+    if (action === 'auto') {
+      // 自動で結果発表開始（5位から）
+      if (!store.settings.phase.startsWith('result_') && store.settings.phase !== 'finished') {
+        store.settings.phase = 'result_5';
+        handlePhaseChange('result_5');
+        if (isHost) updateHostButtons();
+      }
+    } else {
+      showToast('結果発表時刻になりました', false);
+    }
+  }
+}
+
+// 5秒ごとにスケジュールチェック
+setInterval(checkSchedule, 5000);
+
+// ============================================================
+// 5. 名前入力 / タブ切替
+// ============================================================
+$('#nameSubmit').addEventListener('click', () => {
+  const v = $('#nameInput').value.trim();
+  if (!v) return $('#nameInput').focus();
+  // 識別情報の検証
+  const ids = validateAndCollectIdentifiers();
+  if (ids === null) return;
+  // プライバシー同意チェック
+  if (!checkPrivacyConsent()) return;
+
+  state.nickname = v;
+  state.identifiers = ids;  // ホストのみ参照可能、UIには絶対表示しない
+  $('#userName').textContent = v;
+  $('#metaName').textContent = v;
+  $('#nameModal').classList.add('hidden');
+});
+$('#nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#nameSubmit').click(); });
+
+function switchTab(name) {
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
+  $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
+  if (name === 'gallery') startGallery();
+  else stopGallery();
+}
+$$('.tab').forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.view)));
+
+// ============================================================
+// 6. 写真投稿
+// ============================================================
+let selectedFile = null;
+
+$('#fileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) return showToast('画像ファイルを選んでください', true);
+  if (file.size > 30 * 1024 * 1024) return showToast('ファイルが大きすぎます', true);
+  selectedFile = file;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    $('#previewSlot').innerHTML = `
+      <div class="preview">
+        <div class="preview__frame">
+          <img src="${ev.target.result}" alt="">
+          <button class="preview__remove" id="previewRemove">×</button>
+        </div>
+      </div>`;
+    $('#previewRemove').addEventListener('click', clearPreview);
+    $('#submitBtn').disabled = false;
+    $('#uploader').style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+});
+
+function clearPreview() {
+  selectedFile = null;
+  $('#fileInput').value = '';
+  $('#previewSlot').innerHTML = '';
+  $('#submitBtn').disabled = true;
+  $('#uploader').style.display = 'block';
+}
+
+$('#submitBtn').addEventListener('click', async () => {
+  if (!selectedFile || !state.nickname) return;
+  if (!['voting', 'waiting'].includes(store.settings.phase)) return showToast('投稿受付は終了しました', true);
+  // スケジュール判定
+  const us = getUploadStatus();
+  if (!us.allowed) return showToast(us.reason, true);
+  const limit = store.settings.max_uploads_per_user || 5;
+  if (state.myPhotoCount >= limit) return showToast(`投稿は1人${limit}枚までです`, true);
+
+  $('#submitBtn').disabled = true;
+  $('#submitBtn').querySelector('span').textContent = 'アップロード中...';
+  try {
+    const compressed = await compressImage(selectedFile, 1200, 0.75);
+    // Supabase Storage にアップロード
+    const { path, publicUrl } = await DB.uploadImage(EVENT_ID, compressed, 'photo.jpg');
+    // Supabase DBにレコード追加
+    const photoId = uuid();
+    await DB.createPhoto({
+      id: photoId,
+      event_id: EVENT_ID,
+      user_id: USER_ID,
+      nickname: state.nickname,
+      identifiers: state.identifiers || {},
+      image_url: publicUrl,
+      storage_path: path,
+    });
+    const photo = {
+      id: photoId,
+      user_id: USER_ID,
+      nickname: state.nickname,
+      identifiers: state.identifiers || {},
+      image_url: publicUrl,
+      storage_path: path,
+      created_at: new Date().toISOString(),
+    };
+    store.photos.push(photo);
+    state.myPhotoIds.add(photo.id);
+    state.myPhotoCount++;
+    $('#metaCount').textContent = state.myPhotoCount;
+    if ($('#view-gallery').classList.contains('active')) {
+      state.gallery.queue.push(photo);
+      if (state.gallery.queue.length === 1) startGallery();
+      updateCounter();
+    }
+    clearPreview();
+    showToast('投稿しました ✓');
+  } catch (err) {
+    console.error(err);
+    showToast('投稿に失敗しました：' + (err.message || ''), true);
+  } finally {
+    $('#submitBtn').disabled = false;
+    $('#submitBtn').querySelector('span').textContent = 'この写真を投稿する';
+  }
+});
+
+async function compressImage(file, maxW, q) {
+  // createImageBitmapはEXIF Orientationを自動反映（モダンブラウザ）
+  let img;
+  try {
+    img = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch (e) {
+    // フォールバック：古いブラウザ用
+    return compressImageFallback(file, maxW, q);
+  }
+  let w = img.width, h = img.height;
+  if (w > maxW) { h = Math.round(h * (maxW / w)); w = maxW; }
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  return new Promise((resolve, reject) => {
+    c.toBlob((b) => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/jpeg', q);
+  });
+}
+
+function compressImageFallback(file, maxW, q) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width: w, height: h } = img;
+        if (w > maxW) { h = h * (maxW / w); w = maxW; }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        c.toBlob((b) => b ? resolve(b) : reject(), 'image/jpeg', q);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function blobToDataUrl(b) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = (e) => resolve(e.target.result);
+    r.onerror = reject;
+    r.readAsDataURL(b);
+  });
+}
+
+// ============================================================
+// 7. ギャラリー
+// ============================================================
+const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+function refreshGallery() {
+  state.gallery.queue = shuffle(store.photos);
+  state.gallery.currentIdx = 0;
+  renderGalleryCard();
+  updateCounter();
+}
+
+function startGallery() {
+  if (state.gallery.queue.length === 0) refreshGallery();
+  if (store.photos.length === 0) {
+    $('#galleryEmpty').style.display = 'flex';
+    $('#galleryCounter').style.display = 'none';
+    return;
+  }
+  $('#galleryEmpty').style.display = 'none';
+  $('#galleryCounter').style.display = 'block';
+  if (!state.gallery.timer && !state.gallery.paused) scheduleNext();
+  if (store.settings.bgm_enabled && BGM.isEnabled()) BGM.startGallery();
+}
+
+function stopGallery() {
+  if (state.gallery.timer) { clearTimeout(state.gallery.timer); state.gallery.timer = null; }
+  if (store.settings.phase === 'voting' || store.settings.phase === 'waiting') {
+    if (!$('#view-gallery').classList.contains('active')) BGM.stop();
+  }
+}
+
+function scheduleNext() {
+  const interval = (store.settings.slide_interval_seconds || 5) * 1000;
+  startProgress(interval);
+  state.gallery.timer = setTimeout(() => {
+    state.gallery.currentIdx++;
+    if (state.gallery.currentIdx >= state.gallery.queue.length) {
+      state.gallery.queue = shuffle(store.photos);
+      state.gallery.currentIdx = 0;
+    }
+    renderGalleryCard();
+    updateCounter();
+    scheduleNext();
+  }, interval);
+}
+
+function startProgress(d) {
+  const fill = document.querySelector('.photo-card.active .photo-card__progress-fill');
+  if (!fill) return;
+  fill.style.transition = 'none';
+  fill.style.width = '0%';
+  void fill.offsetWidth;
+  fill.style.transition = `width ${d}ms linear`;
+  fill.style.width = '100%';
+}
+
+function renderGalleryCard() {
+  const stage = $('#galleryStage');
+  const photo = state.gallery.queue[state.gallery.currentIdx];
+  if (!photo) { stage.innerHTML = ''; return; }
+
+  const existingActive = stage.querySelector('.photo-card.active');
+  if (existingActive && existingActive.dataset.photoId === photo.id) {
+    startProgress((store.settings.slide_interval_seconds || 5) * 1000);
+    return;
+  }
+
+  stage.querySelectorAll('.photo-card').forEach(c => {
+    c.classList.remove('active');
+    setTimeout(() => c.remove(), 600);
+  });
+
+  const isMine = state.myPhotoIds.has(photo.id);
+  const liked = state.myLikes.has(photo.id);
+  const count = state.likeCounts.get(photo.id) || 0;
+  const showName = store.settings.show_nickname !== false;
+  const showCount = store.settings.show_like_count === true;
+  const reported = state.myReports.has(photo.id);
+  const commentCount = state.commentCounts.get(photo.id) || 0;
+
+  const card = document.createElement('div');
+  card.className = 'photo-card';
+  card.dataset.photoId = photo.id;
+  card.innerHTML = `
+    <div class="photo-card__progress"><div class="photo-card__progress-fill"></div></div>
+    <button class="report-btn ${reported ? 'reported' : ''}" data-report-btn="${photo.id}" title="通報">⚠</button>
+    ${commentCount > 0 ? `<div class="comment-badge">💬 ${commentCount}</div>` : ''}
+    <button class="nav-zone nav-zone--prev" data-nav="prev" aria-label="前の写真"></button>
+    <button class="nav-zone nav-zone--next" data-nav="next" aria-label="次の写真"></button>
+    <div class="photo-card__image-wrap" data-photo-tap="${photo.id}">
+      <div class="photo-card__bg" style="background-image:url('${photo.image_url}')"></div>
+      <img class="photo-card__image" src="${photo.image_url}" alt="">
+    </div>
+    <div class="photo-card__info">
+      <div class="photo-card__meta">
+        <div class="photo-card__by">${isMine ? 'YOUR PHOTO' : 'PHOTO BY'}</div>
+        <div class="photo-card__name">${showName ? escapeHtml(photo.nickname) : '匿名'}${isMine ? ' <span style="opacity:0.7;font-size:13px;font-weight:500;">（あなた）</span>' : ''}</div>
+        ${showCount ? `<div class="photo-card__count" data-count-display="${photo.id}">♥ ${count}</div>` : ''}
+      </div>
+      ${isMine ? `<div class="mine-badge"><svg viewBox="0 0 24 24"><path d="M12 2l2.39 7.36H22l-6.18 4.49L18.21 22 12 17.27 5.79 22l2.39-8.15L2 9.36h7.61L12 2z"/></svg></div>` : `
+        <button class="like-btn ${liked ? 'liked' : ''}" data-like-btn="${photo.id}">
+          <svg class="like-btn__heart" viewBox="0 0 24 24"><path d="M12 21s-7-4.5-9.5-9.5C.5 7 4 3 8 3c2 0 3.5 1 4 2.5C12.5 4 14 3 16 3c4 0 7.5 4 5.5 8.5C19 16.5 12 21 12 21z"/></svg>
+          ${showCount ? `<div class="like-btn__count" data-count-badge="${photo.id}">${count}</div>` : ''}
+        </button>`}
+    </div>`;
+  stage.appendChild(card);
+  requestAnimationFrame(() => {
+    card.classList.add('active');
+    startProgress((store.settings.slide_interval_seconds || 5) * 1000);
+  });
+
+  const likeBtn = card.querySelector('[data-like-btn]');
+  if (likeBtn) likeBtn.addEventListener('click', (e) => { e.stopPropagation(); handleLikeClick(e, photo.id, isMine); });
+  const tapArea = card.querySelector('[data-photo-tap]');
+  if (tapArea) tapArea.addEventListener('click', () => openCommentModal(photo.id));
+  const reportBtn = card.querySelector('[data-report-btn]');
+  if (reportBtn) reportBtn.addEventListener('click', (e) => { e.stopPropagation(); handleReportClick(photo.id); });
+  card.querySelectorAll('[data-nav]').forEach(b => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      navigateGallery(b.dataset.nav);
+    });
+  });
+}
+
+function navigateGallery(direction) {
+  if (state.gallery.queue.length === 0) return;
+  // 自動再生を止めてリセット
+  if (state.gallery.timer) { clearTimeout(state.gallery.timer); state.gallery.timer = null; }
+  if (direction === 'next') {
+    state.gallery.currentIdx++;
+    if (state.gallery.currentIdx >= state.gallery.queue.length) {
+      state.gallery.queue = shuffle(store.photos);
+      state.gallery.currentIdx = 0;
+    }
+  } else {
+    state.gallery.currentIdx--;
+    if (state.gallery.currentIdx < 0) state.gallery.currentIdx = state.gallery.queue.length - 1;
+  }
+  renderGalleryCard();
+  updateCounter();
+  // 自動再生を再開
+  if (!state.gallery.paused) scheduleNext();
+}
+
+function handleLikeClick(e, photoId, isMine) {
+  if (isMine) return showToast('自分の写真にはいいねできません', true);
+  if (state.myLikes.has(photoId)) return showToast('既にいいね済みです');
+  if (!['voting', 'waiting'].includes(store.settings.phase)) return showToast('投票は終了しました', true);
+  // スケジュール判定
+  const vs = getVoteStatus();
+  if (!vs.allowed) return showToast(vs.reason, true);
+  const now = Date.now();
+  if (now - state.lastLikeAt < 400) return;
+  state.lastLikeAt = now;
+
+  // 楽観UI更新
+  state.myLikes.add(photoId);
+  state.likeCounts.set(photoId, (state.likeCounts.get(photoId) || 0) + 1);
+  store.likes.push({ photo_id: photoId, user_id: USER_ID });
+  e.currentTarget.classList.add('liked');
+  updateLikeBadge(photoId);
+  spawnFloatingHeart(e.currentTarget);
+
+  // Supabaseへ書き込み
+  DB.addLike(EVENT_ID, photoId, USER_ID).catch(err => {
+    console.error(err);
+    // ロールバック
+    state.myLikes.delete(photoId);
+    state.likeCounts.set(photoId, Math.max(0, (state.likeCounts.get(photoId) || 1) - 1));
+    store.likes = store.likes.filter(l => !(l.photo_id === photoId && l.user_id === USER_ID));
+    e.currentTarget.classList.remove('liked');
+    updateLikeBadge(photoId);
+    showToast('いいねに失敗しました', true);
+  });
+}
+
+function spawnFloatingHeart(btn) {
+  const r = btn.getBoundingClientRect();
+  const stage = $('#galleryStage');
+  const sr = stage.getBoundingClientRect();
+  const h = document.createElement('div');
+  h.className = 'heart-float';
+  h.textContent = '❤';
+  h.style.left = (r.left - sr.left + r.width / 2 - 14) + 'px';
+  h.style.top = (r.top - sr.top) + 'px';
+  stage.appendChild(h);
+  setTimeout(() => h.remove(), 1200);
+}
+
+function updateLikeBadge(photoId) {
+  if (!store.settings.show_like_count) return;
+  const count = state.likeCounts.get(photoId) || 0;
+  document.querySelectorAll(`[data-count-badge="${photoId}"]`).forEach(b => b.textContent = count);
+  document.querySelectorAll(`[data-count-display="${photoId}"]`).forEach(d => d.textContent = `♥ ${count}`);
+}
+
+function updateCounter() {
+  const cur = state.gallery.currentIdx + 1;
+  const total = state.gallery.queue.length;
+  $('#counterCurrent').textContent = total > 0 ? cur : 0;
+  $('#counterTotal').textContent = total;
+  $('#galleryEmpty').style.display = total === 0 ? 'flex' : 'none';
+  $('#galleryCounter').style.display = total === 0 ? 'none' : 'block';
+}
+
+// ============================================================
+// 8. コメント機能
+// ============================================================
+function openCommentModal(photoId) {
+  state.currentCommentPhotoId = photoId;
+  state.gallery.paused = true;
+  if (state.gallery.timer) { clearTimeout(state.gallery.timer); state.gallery.timer = null; }
+  const fill = document.querySelector('.photo-card.active .photo-card__progress-fill');
+  if (fill) { const cs = getComputedStyle(fill); fill.style.transition = 'none'; fill.style.width = cs.width; }
+  const photo = store.photos.find(p => p.id === photoId);
+  if (!photo) return;
+  $('#commentTitle').textContent = store.settings.show_nickname !== false ? `${photo.nickname}さんの写真` : '写真';
+  renderComments(photoId);
+  $('#commentModal').classList.add('show');
+  setTimeout(() => $('#commentInput').focus(), 300);
+}
+
+function closeCommentModal() {
+  $('#commentModal').classList.remove('show');
+  state.currentCommentPhotoId = null;
+  state.gallery.paused = false;
+  if ($('#view-gallery').classList.contains('active')) scheduleNext();
+}
+
+function renderComments(photoId) {
+  const list = $('#commentList');
+  const comments = store.comments.filter(c => c.photo_id === photoId);
+  $('#commentSub').textContent = comments.length === 0 ? 'まだコメントはありません' : `${comments.length}件のコメント`;
+  if (comments.length === 0) {
+    list.innerHTML = `<div class="comments-empty"><div class="comments-empty__icon">💬</div><div>最初のコメントを書いてみましょう</div></div>`;
+    return;
+  }
+  const photo = store.photos.find(p => p.id === photoId);
+  const showName = store.settings.show_nickname !== false;
+  list.innerHTML = comments.map(c => {
+    const isAuthor = photo && c.user_id === photo.user_id;
+    const isMe = c.user_id === USER_ID;
+    return `<div class="comment">
+      <div class="comment__avatar">${escapeHtml((c.nickname || '?')[0])}</div>
+      <div class="comment__main">
+        <div class="comment__name">${showName ? escapeHtml(c.nickname) : '匿名'}${isAuthor ? '<b>投稿者</b>' : ''}${isMe && !isAuthor ? '<b style="color:var(--ink-3);">あなた</b>' : ''}</div>
+        <div class="comment__text">${escapeHtml(c.text)}</div>
+      </div></div>`;
+  }).join('');
+}
+
+function postComment() {
+  const text = $('#commentInput').value.trim();
+  if (!text || !state.currentCommentPhotoId || !state.nickname) return;
+  const comment = {
+    id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    event_id: EVENT_ID,
+    photo_id: state.currentCommentPhotoId,
+    user_id: USER_ID,
+    nickname: state.nickname,
+    text: text,
+  };
+  $('#commentInput').value = '';
+  // 楽観UI更新
+  store.comments.push({ ...comment, created_at: new Date().toISOString() });
+  state.commentCounts.set(state.currentCommentPhotoId, (state.commentCounts.get(state.currentCommentPhotoId) || 0) + 1);
+  renderComments(state.currentCommentPhotoId);
+  // Supabaseへ
+  DB.addComment(comment).catch(err => {
+    console.error(err);
+    showToast('送信失敗', true);
+  });
+}
+
+$('#commentClose').addEventListener('click', closeCommentModal);
+$('#commentModal').addEventListener('click', (e) => { if (e.target.id === 'commentModal') closeCommentModal(); });
+$('#commentSend').addEventListener('click', postComment);
+$('#commentInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') postComment(); });
+
+// ============================================================
+// 9. 通報機能
+// ============================================================
+function handleReportClick(photoId) {
+  if (state.myReports.has(photoId)) return showToast('通報済みです');
+  if (!confirm('この写真を不適切として通報しますか？')) return;
+  state.myReports.add(photoId);
+  store.reports.push({ photo_id: photoId, user_id: USER_ID });
+  const btn = document.querySelector(`[data-report-btn="${photoId}"]`);
+  if (btn) btn.classList.add('reported');
+  // Supabaseへ
+  DB.addReport(EVENT_ID, photoId, USER_ID)
+    .then(() => showToast('通報しました'))
+    .catch(err => {
+      console.error(err);
+      state.myReports.delete(photoId);
+      if (btn) btn.classList.remove('reported');
+      showToast('通報失敗', true);
+    });
+}
+
+function updateReportList() {
+  // 参加者画面では使用しない（admin.htmlでのみ動作）
+  return;
+}
+
+// ============================================================
+// 10. 結果発表
+// ============================================================
+function computeRankings() {
+  const counts = new Map();
+  store.likes.forEach(l => counts.set(l.photo_id, (counts.get(l.photo_id) || 0) + 1));
+  return store.photos.map(p => ({ ...p, like_count: counts.get(p.id) || 0 }))
+    .sort((a, b) => b.like_count - a.like_count || new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 5);
+}
+
+async function handlePhaseChange(phase) {
+  const prev = state.lastPhase;
+  state.lastPhase = phase;
+
+  if (phase === 'waiting' || phase === 'voting') {
+    $('#resultWaiting').style.display = 'block';
+    $('#resultWaitingTitle').innerHTML = 'まもなく<br>結果発表！';
+    $('#countdown').classList.remove('show');
+    $('#rankReveal').classList.remove('show');
+    $('#finalList').classList.remove('show');
+    $('#confetti').classList.remove('show');
+    state.rankings = [];
+    state.rankingsFrozen = false;
+  } else if (phase.startsWith('result_')) {
+    switchTab('result');
+    if (!state.rankingsFrozen) { state.rankings = computeRankings(); state.rankingsFrozen = true; }
+    const rank = parseInt(phase.replace('result_', ''));
+    if (state.rankings.length === 0) {
+      $('#resultWaiting').style.display = 'block';
+      $('#resultWaitingTitle').innerHTML = '投稿が<br>ありませんでした';
+      return;
+    }
+    const wasInResult = prev && (prev.startsWith('result_') || prev === 'finished');
+    if (rank === 5 && !wasInResult) {
+      if (store.settings.bgm_enabled && BGM.isEnabled()) BGM.startResult();
+      await runCountdown();
+    }
+    if (store.settings.bgm_enabled && BGM.isEnabled()) BGM.revealChime(rank);
+    revealRank(rank);
+  } else if (phase === 'finished') {
+    switchTab('result');
+    if (!state.rankingsFrozen || state.rankings.length === 0) { state.rankings = computeRankings(); state.rankingsFrozen = true; }
+    $('#resultWaiting').style.display = 'none';
+    $('#countdown').classList.remove('show');
+    $('#rankReveal').classList.remove('show');
+    showFinalList();
+  }
+}
+
+function runCountdown() {
+  return new Promise((resolve) => {
+    $('#resultWaiting').style.display = 'none';
+    const cd = $('#countdown'), num = $('#countdownNum');
+    cd.classList.add('show');
+    let n = 3;
+    num.textContent = n;
+    num.style.animation = 'none'; void num.offsetWidth; num.style.animation = '';
+    if (store.settings.bgm_enabled && BGM.isEnabled()) BGM.countTick();
+    const t = setInterval(() => {
+      n--;
+      if (n <= 0) { clearInterval(t); cd.classList.remove('show'); resolve(); return; }
+      num.textContent = n;
+      num.style.animation = 'none'; void num.offsetWidth; num.style.animation = 'countPop 1s ease-out';
+      if (store.settings.bgm_enabled && BGM.isEnabled()) BGM.countTick();
+    }, 1000);
+  });
+}
+
+function revealRank(rank) {
+  const photo = state.rankings[rank - 1];
+  $('#resultWaiting').style.display = 'none';
+  $('#countdown').classList.remove('show');
+  $('#finalList').classList.remove('show');
+  const reveal = $('#rankReveal');
+  reveal.dataset.rank = rank;
+  reveal.classList.remove('show'); void reveal.offsetWidth;
+  $('#rankSuffix').textContent = { 1: 'st', 2: 'nd', 3: 'rd', 4: 'th', 5: 'th' }[rank];
+  $('#rankNum').textContent = rank;
+  if (!photo) {
+    $('#rankLabel').textContent = `${rank}TH PLACE`;
+    $('#rankPhoto').src = '';
+    $('#rankName').textContent = '— 該当なし —';
+    $('#rankLikes').textContent = '0';
+    reveal.classList.add('show');
+    return;
+  }
+  $('#rankLabel').textContent = rank === 1 ? '🏆 GRAND PRIZE' : `${rank}TH PLACE`;
+  $('#rankPhoto').src = photo.image_url;
+  $('#rankName').textContent = store.settings.show_nickname !== false ? photo.nickname : '匿名';
+  $('#rankLikes').textContent = photo.like_count;
+  reveal.classList.add('show');
+  if (rank === 1) spawnConfetti();
+  else $('#confetti').classList.remove('show');
+}
+
+function spawnConfetti() {
+  const c = $('#confetti');
+  c.innerHTML = '';
+  c.classList.add('show');
+  const colors = ['#ff7d5c', '#e6c984', '#2a8db5', '#14587a', '#ffa380', '#f0d59a'];
+  for (let i = 0; i < 80; i++) {
+    const p = document.createElement('div');
+    p.className = 'confetti__piece';
+    p.style.left = Math.random() * 100 + '%';
+    p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    p.style.animationDuration = (3 + Math.random() * 3) + 's';
+    p.style.animationDelay = Math.random() * 2 + 's';
+    p.style.transform = `rotate(${Math.random() * 360}deg)`;
+    c.appendChild(p);
+  }
+}
+
+function showFinalList() {
+  $('#rankReveal').classList.remove('show');
+  $('#confetti').classList.remove('show');
+  const items = $('#finalItems');
+  items.innerHTML = '';
+  const showName = store.settings.show_nickname !== false;
+  state.rankings.forEach((p, i) => {
+    const rank = i + 1;
+    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank;
+    items.innerHTML += `<div class="final-item final-item--${rank}">
+      <div class="final-item__rank">${medal}</div>
+      <div class="final-item__main">
+        <div class="final-item__name">${showName ? escapeHtml(p.nickname) : '匿名'}</div>
+        <div class="final-item__likes">♥ <b>${p.like_count}</b> いいね</div>
+      </div>
+      <div class="final-item__photo-wrap"><img src="${p.image_url}" alt=""></div>
+    </div>`;
+  });
+  renderSpecialAwards();
+  $('#finalList').classList.add('show');
+}
+
+function renderSpecialAwards() {
+  const section = $('#specialSection'), list = $('#specialAwardsList');
+  if (!store.specials.length) { section.style.display = 'none'; return; }
+  const showName = store.settings.show_nickname !== false;
+  list.innerHTML = '';
+  store.specials.forEach(sp => {
+    const photo = store.photos.find(p => p.id === sp.photo_id);
+    if (!photo || !sp.title) return;
+    list.innerHTML += `<div class="special-award">
+      <div class="special-award__icon">🌟</div>
+      <div class="special-award__main">
+        <div class="special-award__title">${escapeHtml(sp.title)}</div>
+        <div class="special-award__name">${showName ? escapeHtml(photo.nickname) : '匿名'}</div>
+      </div>
+      <div class="special-award__photo-wrap"><img src="${photo.image_url}" alt=""></div>
+    </div>`;
+  });
+  section.style.display = list.children.length ? 'block' : 'none';
+}
+
+// ============================================================
+// 11. 結果保存（Canvas → PNG）
+// ============================================================
+async function saveResultImage() {
+  const btn = $('#saveResultBtn');
+  btn.disabled = true;
+  btn.textContent = '画像を生成中...';
+  try {
+    const W = 800;
+    const top5 = state.rankings;
+    const specials = store.specials.filter(sp => sp.title && sp.photo_id && store.photos.find(p => p.id === sp.photo_id));
+    const H = 280 + top5.length * 140 + (specials.length ? 80 + specials.length * 120 : 0) + 80;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    // 背景
+    ctx.fillStyle = '#f5ede0';
+    ctx.fillRect(0, 0, W, H);
+
+    // ヘッダー
+    const grad = ctx.createLinearGradient(0, 0, W, 240);
+    grad.addColorStop(0, '#0a3d52');
+    grad.addColorStop(1, '#14587a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, 240);
+
+    ctx.fillStyle = '#e8f1f5';
+    ctx.textAlign = 'center';
+    ctx.font = '700 16px sans-serif';
+    ctx.fillText('FINAL RESULT', W / 2, 70);
+    ctx.font = '800 36px sans-serif';
+    ctx.fillText('竹島水族館 フォトコンテスト', W / 2, 130);
+    ctx.font = '800 56px sans-serif';
+    ctx.fillStyle = '#e6c984';
+    ctx.fillText('TOP 5', W / 2, 195);
+    if (store.settings.show_theme && store.settings.theme) {
+      ctx.font = '500 14px sans-serif';
+      ctx.fillStyle = 'rgba(232,241,245,0.7)';
+      ctx.fillText(`テーマ：${store.settings.theme}`, W / 2, 225);
+    }
+
+    const loadImg = (src) => new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+
+    let y = 280;
+    const showName = store.settings.show_nickname !== false;
+
+    for (let i = 0; i < top5.length; i++) {
+      const p = top5[i], rank = i + 1;
+      try {
+        const img = await loadImg(p.image_url);
+        ctx.fillStyle = rank === 1 ? '#fdf3d8' : '#ffffff';
+        roundRect(ctx, 30, y, W - 60, 120, 12, true, false);
+        ctx.fillStyle = rank === 1 ? '#e6c984' : rank === 2 ? '#95a3b8' : rank === 3 ? '#b8814a' : '#6c7d8a';
+        ctx.font = '800 56px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(rank.toString(), 95, y + 80);
+        const ph = 100;
+        ctx.save();
+        roundRect(ctx, W - 30 - ph - 12, y + 10, ph, ph, 8, false, false);
+        ctx.clip();
+        ctx.drawImage(img, W - 30 - ph - 12, y + 10, ph, ph);
+        ctx.restore();
+        ctx.fillStyle = '#0a1f2a';
+        ctx.font = '700 22px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(showName ? p.nickname : '匿名', 170, y + 55);
+        ctx.fillStyle = '#ff7d5c';
+        ctx.font = '700 16px sans-serif';
+        ctx.fillText(`♥ ${p.like_count} いいね`, 170, y + 85);
+      } catch (e) {}
+      y += 140;
+    }
+
+    if (specials.length) {
+      ctx.fillStyle = '#ff7d5c';
+      ctx.textAlign = 'center';
+      ctx.font = '700 13px sans-serif';
+      ctx.fillText('— SPECIAL AWARDS —', W / 2, y + 40);
+      y += 80;
+      for (const sp of specials) {
+        const photo = store.photos.find(p => p.id === sp.photo_id);
+        if (!photo) continue;
+        try {
+          const img = await loadImg(photo.image_url);
+          ctx.fillStyle = '#ffe5dc';
+          roundRect(ctx, 30, y, W - 60, 100, 12, true, false);
+          ctx.fillStyle = '#ff7d5c';
+          ctx.textAlign = 'left';
+          ctx.font = '700 12px sans-serif';
+          ctx.fillText(sp.title, 60, y + 38);
+          ctx.fillStyle = '#0a1f2a';
+          ctx.font = '700 20px sans-serif';
+          ctx.fillText(showName ? photo.nickname : '匿名', 60, y + 70);
+          const ph = 80;
+          ctx.save();
+          roundRect(ctx, W - 30 - ph - 12, y + 10, ph, ph, 8, false, false);
+          ctx.clip();
+          ctx.drawImage(img, W - 30 - ph - 12, y + 10, ph, ph);
+          ctx.restore();
+        } catch (e) {}
+        y += 120;
+      }
+    }
+
+    ctx.fillStyle = '#6c7d8a';
+    ctx.textAlign = 'center';
+    ctx.font = '500 11px sans-serif';
+    ctx.fillText('竹島水族館 フォトコンテスト · ' + new Date().toLocaleDateString('ja-JP'), W / 2, y + 50);
+
+    canvas.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `takeshima-photo-contest-${Date.now()}.png`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('結果を保存しました ✓');
+    }, 'image/png');
+  } catch (err) {
+    showToast('画像生成に失敗しました', true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📥 結果を画像として保存';
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  if (fill) ctx.fill();
+  if (stroke) ctx.stroke();
+}
+
+$('#saveResultBtn').addEventListener('click', saveResultImage);
+// ============================================================
+// 12. テーマ反映
+// ============================================================
+function applyTheme() {
+  const banner = $('#themeBanner');
+  if (!store.settings.show_theme || !store.settings.theme) { banner.style.display = 'none'; return; }
+  banner.style.display = 'flex';
+  $('#themeText').textContent = store.settings.theme;
+}
+
+// ============================================================
+// 13. BGMコントロール
+// ============================================================
+function updateBgmCtrlUI() {
+  const ctrl = $('#bgmCtrl'), icon = $('#bgmIcon'), label = $('#bgmLabel');
+  if (BGM.isEnabled() && store.settings.bgm_enabled) {
+    ctrl.classList.remove('muted'); icon.textContent = '🔊'; label.textContent = 'BGM';
+  } else {
+    ctrl.classList.add('muted'); icon.textContent = '🔇'; label.textContent = 'OFF';
+  }
+}
+
+$('#bgmCtrl').addEventListener('click', () => {
+  const newState = !BGM.isEnabled();
+  BGM.setEnabled(newState);
+  updateBgmCtrlUI();
+  if (newState) {
+    BGM.ensureStart();
+    if ($('#view-gallery').classList.contains('active')) BGM.startGallery();
+    else if (store.settings.phase.startsWith('result_') || store.settings.phase === 'finished') BGM.startResult();
+    showToast('BGM ON');
+  } else {
+    showToast('BGM OFF');
+  }
+});
+
+// ============================================================
+// 14. ホストパネル
+// ============================================================
+
+function updateHostButtons() {
+  document.querySelectorAll('[data-phase]').forEach(b => b.classList.toggle('active', b.dataset.phase === store.settings.phase));
+}
+
+function renderSpecialEditor() {
+  // 参加者画面では使用しない（admin.htmlでのみ動作）
+  return;
+}
+
+// ============================================================
+// 15. Supabase初期ロード＆Realtime
+// ============================================================
+async function loadInitialData() {
+  try {
+    // イベント情報をロード
+    const event = await DB.getEvent(EVENT_ID);
+    if (!event) {
+      showToast('イベントが見つかりません', true);
+      return;
+    }
+    // 設定をstoreに反映（ホストが管理画面で設定した内容）
+    Object.assign(store.settings, {
+      phase: event.phase || 'voting',
+      slide_interval_seconds: event.slide_interval_seconds || 5,
+      show_nickname: event.show_nickname !== false,
+      show_like_count: event.show_like_count === true,
+      theme: event.theme || '',
+      show_theme: event.show_theme !== false,
+      max_uploads_per_user: event.max_uploads_per_user || 5,
+      bgm_enabled: event.bgm_enabled !== false,
+      upload_schedule: event.upload_schedule || { mode: 'none', start: null, end: null },
+      vote_schedule: event.vote_schedule || { mode: 'none', start: null, end: null },
+      result_schedule: event.result_schedule || { mode: 'none', at: null },
+      schedule_action: event.schedule_action || 'auto',
+      identifier_fields: event.identifier_fields || [],
+      identifier_required: event.identifier_required !== false,
+      show_privacy_notice: event.show_privacy_notice !== false,
+      retention_mode: event.retention_mode || 'auto10',
+      privacy_policy_url: event.privacy_policy_url || '',
+      terms_url: event.terms_url || '',
+    });
+
+    // 写真ロード
+    const photos = await DB.listPhotos(EVENT_ID);
+    store.photos = photos.map(p => ({
+      id: p.id,
+      user_id: p.user_id,
+      nickname: p.nickname,
+      identifiers: {},  // 参加者画面では取得しない
+      image_url: p.image_url,
+      storage_path: p.storage_path,
+      created_at: p.created_at,
+    }));
+    photos.forEach(p => {
+      if (p.user_id === USER_ID) {
+        state.myPhotoIds.add(p.id);
+        state.myPhotoCount++;
+      }
+    });
+
+    // いいねロード
+    const likes = await DB.listLikes(EVENT_ID);
+    store.likes = likes;
+    likes.forEach(l => {
+      state.likeCounts.set(l.photo_id, (state.likeCounts.get(l.photo_id) || 0) + 1);
+      if (l.user_id === USER_ID) state.myLikes.add(l.photo_id);
+    });
+
+    // コメントロード
+    const comments = await DB.listComments(EVENT_ID);
+    store.comments = comments;
+    comments.forEach(c => {
+      state.commentCounts.set(c.photo_id, (state.commentCounts.get(c.photo_id) || 0) + 1);
+    });
+
+    // 通報ロード（自分のだけ反映）
+    const reports = await DB.listReports(EVENT_ID);
+    reports.forEach(r => { if (r.user_id === USER_ID) state.myReports.add(r.photo_id); });
+
+    // 特別賞ロード
+    const specials = await DB.listSpecials(EVENT_ID);
+    store.specials = specials;
+
+    // ヘッダー更新
+    $('#metaCount').textContent = state.myPhotoCount;
+    applyTheme();
+
+    // Realtime購読
+    DB.subscribeEvent(EVENT_ID, {
+      onPhotoChange: handlePhotoChange,
+      onLikeChange: handleLikeChange,
+      onCommentChange: handleCommentChange,
+      onEventChange: handleEventChange,
+      onSpecialChange: handleSpecialChange,
+      onConnect: () => {
+        // 再接続時：最新データを再取得
+        if (window.__wasDisconnected) {
+          showToast('再接続しました ✓');
+          window.__wasDisconnected = false;
+        }
+      },
+      onDisconnect: () => {
+        window.__wasDisconnected = true;
+        showToast('接続が切れました。再接続中…', true);
+      },
+    });
+
+    // 現在のフェーズを反映
+    handlePhaseChange(store.settings.phase);
+  } catch (err) {
+    console.error(err);
+    showToast('データ取得に失敗しました', true);
+  }
+}
+
+function handlePhotoChange(payload) {
+  if (payload.eventType === 'INSERT') {
+    const p = payload.new;
+    if (store.photos.find(x => x.id === p.id)) return;
+    store.photos.push({
+      id: p.id, user_id: p.user_id, nickname: p.nickname,
+      identifiers: {}, image_url: p.image_url, storage_path: p.storage_path,
+      created_at: p.created_at,
+    });
+    // 自分の他端末からの投稿を自分の投稿数にカウント
+    if (p.user_id === USER_ID && !state.myPhotoIds.has(p.id)) {
+      state.myPhotoIds.add(p.id);
+      state.myPhotoCount++;
+      $('#metaCount').textContent = state.myPhotoCount;
+    }
+    if ($('#view-gallery').classList.contains('active')) {
+      state.gallery.queue.push(store.photos[store.photos.length - 1]);
+      updateCounter();
+    }
+  } else if (payload.eventType === 'DELETE') {
+    const id = payload.old.id;
+    const wasMine = state.myPhotoIds.has(id);
+    store.photos = store.photos.filter(p => p.id !== id);
+    state.gallery.queue = state.gallery.queue.filter(p => p.id !== id);
+    if (state.gallery.currentIdx >= state.gallery.queue.length) {
+      state.gallery.currentIdx = 0;
+    }
+    state.likeCounts.delete(id);
+    state.commentCounts.delete(id);
+    if (wasMine) {
+      state.myPhotoIds.delete(id);
+      state.myPhotoCount = Math.max(0, state.myPhotoCount - 1);
+      $('#metaCount').textContent = state.myPhotoCount;
+    }
+    if ($('#view-gallery').classList.contains('active')) {
+      if (state.gallery.queue.length === 0) {
+        $('#galleryStage').innerHTML = '';
+        $('#galleryEmpty').style.display = 'flex';
+        $('#galleryCounter').style.display = 'none';
+        if (state.gallery.timer) { clearTimeout(state.gallery.timer); state.gallery.timer = null; }
+      } else {
+        renderGalleryCard();
+        updateCounter();
+      }
+    }
+  }
+}
+
+function handleLikeChange(payload) {
+  if (payload.eventType === 'INSERT') {
+    const l = payload.new;
+    // 既に反映済みのものはスキップ（自分の操作で既に追加済みの場合）
+    if (store.likes.find(x => x.photo_id === l.photo_id && x.user_id === l.user_id)) return;
+    store.likes.push({ photo_id: l.photo_id, user_id: l.user_id });
+    state.likeCounts.set(l.photo_id, (state.likeCounts.get(l.photo_id) || 0) + 1);
+    updateLikeBadge(l.photo_id);
+  }
+}
+
+function handleCommentChange(payload) {
+  if (payload.eventType === 'INSERT') {
+    const c = payload.new;
+    if (store.comments.find(x => x.id === c.id)) return;
+    store.comments.push(c);
+    state.commentCounts.set(c.photo_id, (state.commentCounts.get(c.photo_id) || 0) + 1);
+    if (state.currentCommentPhotoId === c.photo_id) renderComments(c.photo_id);
+  }
+}
+
+function handleEventChange(payload) {
+  const e = payload.new;
+  const oldPhase = store.settings.phase;
+  Object.assign(store.settings, {
+    phase: e.phase, theme: e.theme, show_theme: e.show_theme,
+    show_nickname: e.show_nickname, show_like_count: e.show_like_count,
+    bgm_enabled: e.bgm_enabled, max_uploads_per_user: e.max_uploads_per_user,
+    upload_schedule: e.upload_schedule || store.settings.upload_schedule,
+    vote_schedule: e.vote_schedule || store.settings.vote_schedule,
+    result_schedule: e.result_schedule || store.settings.result_schedule,
+  });
+  applyTheme();
+  if (oldPhase !== e.phase) handlePhaseChange(e.phase);
+  if ($('#view-gallery').classList.contains('active')) renderGalleryCard();
+}
+
+function handleSpecialChange(payload) {
+  // 特別賞は最終結果表示時にしか使わないので、reload
+  DB.listSpecials(EVENT_ID).then(specials => { store.specials = specials; });
+}
+
+loadInitialData();
+applyTheme();
+updateBgmCtrlUI();
+renderIdentifierFields();
+applyPrivacyNotice();
+$('#nameInput').focus();
+</script>
+</body>
+</html>

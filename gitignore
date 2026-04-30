@@ -1,0 +1,15 @@
+# 個人情報（Supabase接続情報）
+config.js
+
+# OS
+.DS_Store
+Thumbs.db
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ログ
+*.log
